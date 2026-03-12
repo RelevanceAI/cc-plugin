@@ -6,6 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 
 This is a Claude Code plugin that provides integration with the Relevance AI platform via a remote MCP server. It exposes tools for managing tools (studios), agents, triggers, workforces (multi-agent systems), marketplace listings, conversations, and OAuth accounts via the Relevance AI API.
 
+## MCP Authentication
+
+**NEVER run `claude mcp auth` via Bash.** This command may not exist in all Claude Code versions and will error.
+
+Authentication happens automatically: when you first call any `relevance_*` MCP tool, the server returns a 401 and Claude Code opens the user's browser for OAuth login. Just call a tool (e.g., `relevance_list_agents`) and the auth flow triggers itself.
+
+If the user says auth isn't working, tell them to:
+1. Run `/mcp` in Claude Code to check server status
+2. Restart Claude Code and try again
+3. Verify they're on Claude Code v1.0.33+
+
 ## Claude Code Workflow
 
 **This section defines how Claude Code should behave when using this plugin.** Non-technical users work here, so Claude Code handles operations automatically.

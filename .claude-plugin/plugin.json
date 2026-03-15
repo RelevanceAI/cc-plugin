@@ -4,7 +4,7 @@
   "description": "Build and manage AI agents, tools, and workforces on Relevance AI",
   "author": { "name": "Relevance AI", "url": "https://relevanceai.com" },
   "homepage": "https://relevanceai.com",
-  "repository": "https://github.com/RelevanceAI/claude-code-plugin",
+  "repository": "https://github.com/RelevanceAI/cc-plugin",
   "license": "MIT",
   "keywords": ["relevance-ai", "agents", "tools", "workforces", "mcp"]
 }

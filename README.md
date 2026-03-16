@@ -9,13 +9,13 @@ Build and manage AI agents, tools, and workforces on [Relevance AI](https://rele
 claude plugin marketplace add RelevanceAI/cc-plugin
 
 # Install the plugin
-claude plugin install relevance-ai@cc-plugin
+claude plugin install relevance-ai@relevance-ai-plugins
 ```
 
 Or from inside Claude Code:
 ```
 /plugin marketplace add RelevanceAI/cc-plugin
-/plugin install relevance-ai@cc-plugin
+/plugin install relevance-ai@relevance-ai-plugins
 ```
 
 ## What's included

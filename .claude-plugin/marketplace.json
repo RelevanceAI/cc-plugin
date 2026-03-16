@@ -8,7 +8,7 @@
     {
       "name": "relevance-ai",
       "description": "Build and manage AI agents, tools, and workforces on Relevance AI",
-      "source": "./.",
+      "source": "./plugins/relevance-ai",
       "version": "1.0.0"
     }
   ]

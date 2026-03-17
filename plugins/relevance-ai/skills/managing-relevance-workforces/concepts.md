@@ -132,6 +132,31 @@ Controls whether agents share conversation context.
 
 **Important:** For sequential pipelines where agents need to see previous outputs, use `always-same`.
 
+### `always-create-new` Data Flow — Critical Design Pattern
+
+When using `always-create-new` threading (common in tool-call edges where orchestrators invoke sub-agents), each sub-agent runs in an **isolated conversation**. This has critical implications:
+
+1. **Parent agents can only read sub-agent response text** — they cannot access sub-agent tool call results, artifacts, or internal state
+2. **Sub-agents cannot be re-queried** — each invocation creates a new task/thread, so asking "what was the URL you created?" in a follow-up call starts a fresh conversation with no memory
+3. **Sub-agents must report all important data in their response text** — URLs, file paths, key results, etc.
+
+```
+// WRONG — Orchestrator calls Writer, then tries to ask for the DOCX URL
+Orchestrator → Writer: "Write an article about X"       // Writer creates DOCX
+Orchestrator → Writer: "What was the DOCX URL?"         // NEW thread — Writer has no memory!
+
+// CORRECT — Writer includes URL in its response text
+Writer system prompt includes:
+  "Your response MUST end with: **DOCX URL:** [exact URL from save tool]"
+Orchestrator reads the URL from Writer's response text
+```
+
+**When designing `always-create-new` workflows:**
+
+- Instruct sub-agents to include all output data (URLs, IDs, results) in their response text
+- Have orchestrator agents extract data from sub-agent responses, not re-query
+- If an orchestrator needs to pass data between sub-agents, extract from one response and include in the next invocation message
+
 ## Action Config (tool-call edges only)
 
 When using `tool-call` edges, you can configure how the source agent invokes the target:

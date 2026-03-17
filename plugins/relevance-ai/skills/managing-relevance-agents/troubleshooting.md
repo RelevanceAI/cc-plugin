@@ -4,6 +4,48 @@ Common issues and fixes for Relevance AI agents.
 
 ## Critical Issues
 
+### `relevance_save_agent_draft` Warns About Empty Actions
+
+**Symptom:** Saving an agent returns a warning about `actions` being empty.
+
+**Cause:** The `relevance_save_agent_draft` API uses PUT semantics — omitted fields get wiped. The warning helps catch accidental omissions (e.g. forgetting to include existing tools).
+
+**When it's safe to ignore:** If the agent intentionally has no tools, the warning is a false positive. The save still proceeds — it's a warning, not a block.
+
+**When to act:** If the agent should have tools, fetch the full config first:
+
+```typescript
+// Fetch full config, merge your changes, save complete object
+const { agent } = await relevance_get_agent({
+  agent_id: '...',
+  summary: false,
+});
+await relevance_save_agent_draft({
+  agent_id: '...',
+  config: { ...agent, system_prompt: 'updated prompt' },
+});
+```
+
+**Tip:** For targeted edits (system prompt, model, etc.), use `relevance_patch_agent` instead — it handles fetch/merge/save internally and avoids this issue entirely.
+
+### Agent Max Output Tokens — 422 Error
+
+**Symptom:** Setting `max_output_tokens` or `max_tokens` on an agent returns a 422 error.
+
+**Cause:** `max_output_tokens` is NOT a top-level agent field — it lives inside `model_options`.
+
+**Fix:**
+
+```typescript
+// WRONG — 422 error
+{ ...agent, max_output_tokens: 16000 }
+
+// CORRECT — nested inside model_options
+{ ...agent, model_options: { max_output_tokens: 16000 } }
+```
+
+See [creating.md](creating.md) for the full `model_options` reference.
+
 ### Agent Config Wiped After Update
 
 **Symptom:** Agent lost system prompt, tools, or other config after saving.

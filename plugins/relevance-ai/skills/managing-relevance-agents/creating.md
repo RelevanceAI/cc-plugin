@@ -17,7 +17,29 @@ interface AgentConfig {
   params_schema?: object; // Input variables
   autonomy_limit?: number; // Max tool calls (default: 20)
   autonomy_limit_behaviour?: string; // What happens at limit
+  model_options?: {
+    // Model configuration
+    max_output_tokens?: number; // Max response length (e.g. 16000)
+  };
 }
+```
+
+### `model_options` — NOT a top-level field
+
+`max_output_tokens` and other model settings live inside `model_options`, **not** as top-level agent fields. Setting them at the top level causes a 422 error.
+
+```typescript
+// WRONG — 422 error: unknown top-level field
+relevance_save_agent_draft({
+  agentId: '...',
+  agentConfig: { ...agent, max_output_tokens: 16000 },
+});
+
+// CORRECT — nested inside model_options
+relevance_save_agent_draft({
+  agentId: '...',
+  agentConfig: { ...agent, model_options: { max_output_tokens: 16000 } },
+});
 ```
 
 ## Agent Features (Enabled via Settings)

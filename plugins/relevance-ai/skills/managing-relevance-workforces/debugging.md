@@ -164,6 +164,21 @@ const execution = await relevance_get_workforce_task_messages({
 }
 ```
 
+### Orchestrator can't find sub-agent output (URLs, file paths, etc.)
+
+**Cause:** `always-create-new` threading means the orchestrator can only read sub-agent response text — it cannot access tool call results or re-query the sub-agent (each call creates a fresh thread).
+
+**Fix:** Instruct sub-agents to include all important outputs in their response text:
+
+```
+// Add to sub-agent system prompt:
+"Your response MUST include the DOCX URL on its own line:
+**DOCX URL:** [exact URL from the save tool]
+The parent agent can ONLY read your response text."
+```
+
+Then have the orchestrator extract data from the sub-agent's response text. See [concepts.md](concepts.md) > Threading > `always-create-new` Data Flow for details.
+
 ### Agent with tools appears to have no tools
 
 **Cause:** Wrong `region` in agent's actions

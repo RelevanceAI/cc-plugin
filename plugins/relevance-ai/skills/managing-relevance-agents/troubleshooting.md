@@ -261,6 +261,18 @@ actions: [{
 
 **Fix:** Never re-trigger. Instead, use `relevance_get_task_view` with the original `conversation_id` to check status. The `relevance_trigger_agent` tool returns `timed_out` or `pending_approval` as informational statuses, not errors.
 
+### Transport Timeout (120s) on Sync Trigger
+
+**Symptom:** `relevance_trigger_agent` fails with `timed out awaiting tools/call after 120s`. The agent is still running on the backend but the MCP connection was dropped.
+
+**Cause:** The MCP transport has a hard 120s timeout on tool calls. Agents with multi-tool chains (scrape + enrich + generate + send) routinely exceed this.
+
+**Fix:** Use the async pattern instead:
+
+1. Call `relevance_trigger_agent_async` — returns `conversation_id` immediately
+2. Poll with `relevance_poll_agent_result` until `status` is `completed` or `failed`
+3. **Never re-trigger** after a timeout — the original task is still running
+
 ### Agent Stuck/Not Responding
 
 1. Check task view for errors

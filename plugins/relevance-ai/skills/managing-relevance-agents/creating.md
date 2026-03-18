@@ -158,7 +158,14 @@ relevance_save_agent_draft({
 relevance_publish_agent({ agentId: agent.agent_id });
 ```
 
-### Step 5: Test
+### Step 5: Verify OAuth Integrations
+
+If any attached tools require OAuth (check `params_schema` for `metadata.content_type === "oauth_account"`), verify the connection:
+
+1. Call `relevance_list_oauth_accounts` to check connected accounts
+2. If a required provider is missing, call `relevance_get_project_info` to get the integrations page URL and direct the user to connect it
+
+### Step 6: Test
 
 ```typescript
 relevance_trigger_agent({
@@ -200,9 +207,11 @@ This reveals:
         |
 4. Publish (relevance_publish_agent)
         |
-5. Test (relevance_trigger_agent)
+5. Verify OAuth (relevance_list_oauth_accounts + relevance_get_project_info)
         |
-6. Add triggers if needed (relevance_create_trigger)
+6. Test (relevance_trigger_agent)
+        |
+7. Add triggers if needed (relevance_create_trigger)
 ```
 
 ## Model Options

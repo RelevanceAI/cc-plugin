@@ -130,12 +130,14 @@ const task = await relevance_get_task_view({
 
 ### Common Issues
 
-| Symptom                 | Likely Cause              | Fix                             |
-| ----------------------- | ------------------------- | ------------------------------- |
-| Agent doesn't use tools | System prompt unclear     | Make tool instructions explicit |
-| Tool execution fails    | Missing project/region    | Add to action config            |
-| Wrong tool called       | Tool descriptions unclear | Update action descriptions      |
-| Slow response           | Too many tools            | Remove unused tools             |
+| Symptom                          | Likely Cause                          | Fix                                                                                         |
+| -------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Agent doesn't use tools          | System prompt unclear                 | Make tool instructions explicit                                                              |
+| Tool execution fails             | Missing project/region                | Add to action config                                                                         |
+| Wrong tool called                | Tool descriptions unclear             | Update action descriptions                                                                   |
+| Slow response                    | Too many tools                        | Remove unused tools                                                                          |
+| `pending_approval` status        | `action_behaviour: "always-ask"`      | Approve in UI, or change to `"never-ask"` for automated use                                  |
+| `timed_out` status               | Agent takes >120s                     | Use `relevance_get_task_view` to poll — do NOT re-trigger                                    |
 
 ## URL Patterns
 
@@ -199,6 +201,18 @@ if (page1.next_cursor) {
 - `cursor.before` - Get messages before this ISO timestamp (for going back in time)
 - `cursor.after` - Get messages after this ISO timestamp (for new messages)
 
+## Dry Run / Safe Testing Pattern
+
+For agents with potentially destructive tools (e.g. sending emails, deleting data), set `action_behaviour: "always-ask"` on those tools using `relevance_patch_agent` during testing.
+
+When triggered, the agent will pause at `pending_approval` status before executing the tool. You can:
+
+1. Review the tool call parameters in the Relevance AI app (use `relevance_get_project_info` for the URL)
+2. Approve or reject the call
+3. Use `relevance_get_task_view` to see the result after approval
+
+Once verified, switch back to `"never-ask"` for production use.
+
 ## Best Practices
 
 1. **Test incrementally** - Start with simple messages before complex workflows
@@ -206,3 +220,4 @@ if (page1.next_cursor) {
 3. **Verify tool outputs** - Ensure tools return expected data
 4. **Test with diverse inputs** - Don't rely on a single test; use varied inputs to reveal edge cases
 5. **Monitor for timeouts** - Long tool operations may timeout
+6. **Never re-trigger on timeout or pending_approval** - Use `relevance_get_task_view` to poll instead

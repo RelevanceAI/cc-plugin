@@ -242,6 +242,25 @@ actions: [{
 | Wrong model         | Try higher-capability model     |
 | Missing context     | Include relevant info in prompt |
 
+### Agent Stuck on Pending Approval
+
+**Symptom:** `relevance_trigger_agent` returns `status: "pending_approval"` and the agent doesn't progress.
+
+**Cause:** One or more tools have `action_behaviour: "always-ask"`, which requires human approval in the UI before execution.
+
+**Fix:**
+
+1. Go to the conversation URL returned in the response to approve/reject the pending tool call
+2. For automated/MCP use, call `relevance_patch_agent` to change the tool's `action_behaviour` to `"never-ask"`
+
+### Duplicate Tasks Created
+
+**Symptom:** The same agent message appears multiple times, creating duplicate conversations.
+
+**Cause:** Re-triggering the agent after a timeout or pending_approval. The original task is still running server-side.
+
+**Fix:** Never re-trigger. Instead, use `relevance_get_task_view` with the original `conversation_id` to check status. The `relevance_trigger_agent` tool returns `timed_out` or `pending_approval` as informational statuses, not errors.
+
 ### Agent Stuck/Not Responding
 
 1. Check task view for errors

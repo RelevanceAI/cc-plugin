@@ -4,36 +4,40 @@ How to trigger agents, manage conversations, and view results.
 
 ## Triggering Agents
 
-### Choosing Sync vs Async
+### Trigger Agent
 
-| Method | Use when | Timeout |
-|--------|----------|---------|
-| `relevance_trigger_agent` | Quick agents (<60s): simple lookups, single tool calls | 120s (MCP transport limit) |
-| `relevance_trigger_agent_async` + `relevance_poll_agent_result` | Long-running agents: multi-tool chains, web scraping, file generation, workforce stages | No limit |
+Use `relevance_trigger_agent` to send a message. Returns immediately with a `conversation_id`:
 
-**Important**: `relevance_trigger_agent` has a hard 120s transport timeout that cannot be extended. For agents with multiple tool calls (e.g. scrape + enrich + generate + send), always use the async pattern. If a sync trigger times out, **do NOT re-trigger** — the agent is still running server-side. Use `relevance_get_task_view` with the conversation_id to check status.
+```typescript
+const result = await relevance_trigger_agent({
+  agentId: '...',
+  message: 'Research the latest AI developments',
+});
+// Returns { conversation_id } immediately
+// Use relevance_poll_agent_result to check status and get the response
+```
 
-### Sync Trigger (Quick Agents)
+### Synchronous (Wait for Completion)
 
-Use `relevance_trigger_agent` for agents that complete in under ~60s:
+Use `relevance_trigger_agent_sync` to trigger and wait for completion (up to 120s):
+
+```typescript
+const result = await relevance_trigger_agent_sync({
+  agentId: '...',
+  message: 'Research the latest AI developments',
+});
+// Returns { status, response, toolCalls } when done
+```
+
+### Continue Existing Conversation
 
 ```typescript
 relevance_trigger_agent({
   agentId: '...',
-  message: 'Research the latest AI developments',
+  conversationId: 'previous-conversation-id',
+  message: 'Tell me more about transformers',
 });
 ```
-
-### Async Trigger (Long-Running Agents — Recommended)
-
-Use `relevance_trigger_agent_async` then poll with `relevance_poll_agent_result`:
-
-1. Call `relevance_trigger_agent_async` — returns immediately with `conversation_id`
-2. Call `relevance_poll_agent_result` every few seconds until `status` is `completed` or `failed`
-
-### Continue Existing Conversation
-
-Pass `conversation_id` to either trigger method to continue a conversation.
 
 ## Viewing Conversations
 
@@ -138,15 +142,14 @@ const task = await relevance_get_task_view({
 
 ### Common Issues
 
-| Symptom                          | Likely Cause                          | Fix                                                                                         |
-| -------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Agent doesn't use tools          | System prompt unclear                 | Make tool instructions explicit                                                              |
-| Tool execution fails             | Missing project/region                | Add to action config                                                                         |
-| Wrong tool called                | Tool descriptions unclear             | Update action descriptions                                                                   |
-| Slow response                    | Too many tools                        | Remove unused tools                                                                          |
-| `pending_approval` status        | `action_behaviour: "always-ask"`      | Approve in UI, or change to `"never-ask"` for automated use                                  |
-| `timed_out` status               | Agent takes >120s                     | Use `relevance_get_task_view` to poll — do NOT re-trigger                                    |
-| Transport timeout (120s)         | Sync trigger + long-running agent     | Use `relevance_trigger_agent_async` + `relevance_poll_agent_result`                           |
+| Symptom                   | Likely Cause                     | Fix                                                         |
+| ------------------------- | -------------------------------- | ----------------------------------------------------------- |
+| Agent doesn't use tools   | System prompt unclear            | Make tool instructions explicit                             |
+| Tool execution fails      | Missing project/region           | Add to action config                                        |
+| Wrong tool called         | Tool descriptions unclear        | Update action descriptions                                  |
+| Slow response             | Too many tools                   | Remove unused tools                                         |
+| `pending_approval` status | `action_behaviour: "always-ask"` | Approve in UI, or change to `"never-ask"` for automated use |
+| `timed_out` status        | Agent takes >120s                | Use `relevance_get_task_view` to poll — do NOT re-trigger   |
 
 ## URL Patterns
 
@@ -230,3 +233,4 @@ Once verified, switch back to `"never-ask"` for production use.
 4. **Test with diverse inputs** - Don't rely on a single test; use varied inputs to reveal edge cases
 5. **Monitor for timeouts** - Long tool operations may timeout
 6. **Never re-trigger on timeout or pending_approval** - Use `relevance_get_task_view` to poll instead
+7. **Report issues** - If a tool call fails unexpectedly or the agent behaves incorrectly, submit a report via `POST /bugs/submit` (see [self-improvement.md](self-improvement.md))

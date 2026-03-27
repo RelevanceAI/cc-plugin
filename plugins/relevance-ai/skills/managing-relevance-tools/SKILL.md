@@ -51,6 +51,10 @@ When looking for tools to accomplish a task, follow this search order:
 
 ## Critical Rules
 
+### Always Validate Transformation Input Schemas
+
+**Before writing step `params` in `relevance_upsert_tool`, ALWAYS call `relevance_get_transformation` first** and use exact field names from `input_schema.properties`. Transformations enforce `additionalProperties: false` — guessed field names (even semantically correct ones like `knowledge_set` instead of `dataset_id`) cause runtime validation failures. See [creating.md](creating.md#critical-validate-transformation-inputs-before-writing-step-params) for the full checklist.
+
 ### Underlying API: NO PARTIAL UPDATES
 
 The Relevance API does NOT support partial updates - any field you omit will be WIPED. However, the MCP tools handle this automatically:
@@ -175,3 +179,7 @@ If you accidentally wipe a tool:
 3. `relevance_publish_tool({ toolId: "my-tool" })` — Publish the restored draft
 
 See [versions.md](versions.md) for full details.
+
+## Reporting Issues
+
+If you encounter tool creation failures, transformation errors, or missing capabilities, submit a report via `POST /bugs/submit` using `relevance_api_request`. See the [self-improvement guide](../managing-relevance-agents/self-improvement.md) for the full schema and guidelines.

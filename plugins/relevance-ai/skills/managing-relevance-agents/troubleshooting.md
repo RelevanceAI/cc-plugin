@@ -2,6 +2,26 @@
 
 Common issues and fixes for Relevance AI agents.
 
+## Debugging Error Chains
+
+Work backwards from symptoms to root cause. Don't fix symptoms -- fix root causes.
+
+```
+ERROR LOCATION          ACTUAL CAUSE
+Step N: API call        Step 0: Agent/Trigger
+(parameter missing)     (value never passed)
+```
+
+**Common root causes:**
+
+| Symptom                   | Often Actually Caused By                                                        |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| API parameter missing     | Agent didn't pass it in tool call                                               |
+| `KeyError: 'transformed'` | Previous Python step errored or returned wrong type                             |
+| Empty string in API call  | Upstream step received empty input                                              |
+| `required property` error | params_schema mismatch in workforce edge                                        |
+| Tool returns empty `{}`   | Output config not mapped (see creating.md "Fixing Auto-Generated Tool Outputs") |
+
 ## Critical Issues
 
 ### `relevance_save_agent_draft` Warns About Empty Actions
@@ -261,18 +281,6 @@ actions: [{
 
 **Fix:** Never re-trigger. Instead, use `relevance_get_task_view` with the original `conversation_id` to check status. The `relevance_trigger_agent` tool returns `timed_out` or `pending_approval` as informational statuses, not errors.
 
-### Transport Timeout (120s) on Sync Trigger
-
-**Symptom:** `relevance_trigger_agent` fails with `timed out awaiting tools/call after 120s`. The agent is still running on the backend but the MCP connection was dropped.
-
-**Cause:** The MCP transport has a hard 120s timeout on tool calls. Agents with multi-tool chains (scrape + enrich + generate + send) routinely exceed this.
-
-**Fix:** Use the async pattern instead:
-
-1. Call `relevance_trigger_agent_async` — returns `conversation_id` immediately
-2. Poll with `relevance_poll_agent_result` until `status` is `completed` or `failed`
-3. **Never re-trigger** after a timeout — the original task is still running
-
 ### Agent Stuck/Not Responding
 
 1. Check task view for errors
@@ -410,3 +418,7 @@ const transform = await relevance_get_transformation({
 3. Test tools independently with `relevance_run_tool`
 4. Review OAuth with `relevance_list_oauth_accounts`
 5. Check transformation schemas with `relevance_get_transformation`
+
+## Reporting Issues
+
+If troubleshooting reveals a platform bug, missing capability, or recurring friction point, submit a report via `POST /bugs/submit` using `relevance_api_request`. See [self-improvement.md](self-improvement.md) for the full schema. This feeds directly into the engineering triage pipeline — include the error details and suggested fix so the team can act on it.

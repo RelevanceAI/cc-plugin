@@ -4,14 +4,15 @@ Complete API reference for all evaluation endpoints.
 
 ## Evaluation Execution
 
-### POST /evals/agents/:agent_id/conversations
+### POST /evals/:resource_type/:resource_id/evaluate
 
-Trigger an evaluation run for an agent.
+Trigger an evaluation run for a resource. Currently only `agent` is supported; `workforce` support is coming soon.
 
 **Path Parameters:**
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `agent_id` | string | Yes | The agent display ID |
+| `resource_type` | 'agent' \| 'workforce' | Yes | Resource type (only `agent` currently supported; `workforce` coming soon) |
+| `resource_id` | string | Yes | Resource display ID |
 
 **Request Body:**
 
@@ -21,8 +22,12 @@ Trigger an evaluation run for an agent.
   evaluation_run_name: string;          // Required - name for this evaluation batch
   type?: 'score_only' | 'generate_and_score';  // Default: 'score_only'
   scenario_ids?: string[];              // Required when type is 'generate_and_score'
+  test_set_id?: string;                 // Alternative to scenario_ids - use a test set
   active_version_id?: string;           // Optional - specific agent version to evaluate
   agent_override?: object;              // Optional - override agent config (max 10KB)
+  workforce_task_ids?: string[];        // Not yet supported — workforce evals coming soon
+  tool_simulation_config?: object;      // Optional - tool simulation configuration
+  rule_ids?: string[];                  // Optional - specific rule IDs to evaluate against
 }
 ```
 
@@ -54,7 +59,7 @@ Create a new test case.
 **Path Parameters:**
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `resource_type` | 'agent' \| 'workforce' | Yes | Resource type |
+| `resource_type` | 'agent' \| 'workforce' | Yes | Resource type (only `agent` currently supported; `workforce` coming soon) |
 | `resource_id` | string | Yes | Resource display ID |
 
 **Query Parameters:**
@@ -123,7 +128,7 @@ List all test cases for a resource.
 
 ---
 
-### GET /evals/test-cases/:test_case_id
+### GET /evals/:resource_type/:resource_id/test-cases/:test_case_id
 
 Get a specific test case by ID.
 
@@ -131,7 +136,7 @@ Get a specific test case by ID.
 
 ---
 
-### PUT /evals/test-cases/:test_case_id
+### PUT /evals/:resource_type/:resource_id/test-cases/:test_case_id
 
 Update an existing test case.
 
@@ -141,7 +146,7 @@ Update an existing test case.
 
 ---
 
-### DELETE /evals/test-cases/:test_case_id
+### DELETE /evals/:resource_type/:resource_id/test-cases/:test_case_id
 
 Delete a test case.
 
@@ -151,7 +156,7 @@ Delete a test case.
 
 ## Test Set Management
 
-### POST /evals/test-sets/:resource_type/:resource_id
+### POST /evals/:resource_type/:resource_id/test-sets
 
 Create a new test set.
 
@@ -174,7 +179,7 @@ Create a new test set.
 
 ---
 
-### GET /evals/test-sets/:resource_type/:resource_id
+### GET /evals/:resource_type/:resource_id/test-sets
 
 List all test sets for a resource.
 
@@ -196,7 +201,7 @@ List all test sets for a resource.
 
 ---
 
-### PUT /evals/test-sets/:test_set_id
+### PUT /evals/:resource_type/:resource_id/test-sets/:test_set_id
 
 Update a test set name.
 
@@ -210,7 +215,7 @@ Update a test set name.
 
 ---
 
-### DELETE /evals/test-sets/:test_set_id
+### DELETE /evals/:resource_type/:resource_id/test-sets/:test_set_id
 
 Delete a test set.
 
@@ -221,23 +226,22 @@ Delete a test set.
 
 ---
 
-## Agent-Level Rule Management
+## Resource-Level Rule Management
 
 Used for `score_only` evaluations against existing conversations.
 
-### POST /evals/rules
+### POST /evals/:resource_type/:resource_id/rules
 
-Create a rule for an agent.
+Create a rule for a resource.
 
 **Request Body:**
 
 ```typescript
 {
-  agent_id: string;         // Agent display ID
   user_definition: {
     name: string;           // Rule name
     rule: string;           // Natural language evaluation criterion
-    display_id?: string;    // Optional custom display ID
+    rule_id?: string;       // Optional custom rule ID
   };
 }
 ```
@@ -252,9 +256,9 @@ Create a rule for an agent.
 
 ---
 
-### GET /evals/rules/:agent_id
+### GET /evals/:resource_type/:resource_id/rules
 
-List all rules for an agent.
+List all rules for a resource.
 
 **Response:**
 
@@ -263,7 +267,7 @@ List all rules for an agent.
   rules: Array<{
     name: string;
     rule: string;
-    display_id: string;
+    rule_id: string;
     created_at: string;
   }>;
 }
@@ -271,7 +275,7 @@ List all rules for an agent.
 
 ---
 
-### PATCH /evals/rules/:eval_rule_id
+### PATCH /evals/:resource_type/:resource_id/rules/:eval_rule_id
 
 Update a rule.
 
@@ -282,14 +286,14 @@ Update a rule.
   user_definition: {
     name: string;
     rule: string;
-    display_id?: string;
+    rule_id?: string;
   };
 }
 ```
 
 ---
 
-### DELETE /evals/rules/:eval_rule_id
+### DELETE /evals/:resource_type/:resource_id/rules/:eval_rule_id
 
 Delete a rule (soft delete).
 
@@ -297,7 +301,7 @@ Delete a rule (soft delete).
 
 ## Batch Management
 
-### GET /evals/resources/:resource_type/:resource_id/batches
+### GET /evals/:resource_type/:resource_id/batches
 
 List all evaluation batches for a resource.
 
@@ -315,15 +319,25 @@ List all evaluation batches for a resource.
 
 ---
 
-### GET /evals/batches/:eval_batch_id/runs
+### POST /evals/:resource_type/:resource_id/runs
 
-Get all runs with full details for a batch. This is the primary endpoint for reading eval results.
+List eval runs for a resource with filtering and pagination. This is the primary endpoint for reading eval results.
 
-**Query Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `page` | string | No | Page number |
-| `page_size` | string | No | Results per page |
+**Request Body:**
+
+```typescript
+{
+  page?: number;                         // Page number (1-based)
+  page_size?: number;                    // 1-100
+  filters: Array<{
+    type: 'batch_id';
+    batch_id: string;                    // Batch display ID
+  }>;
+  sort?: {
+    direction?: 'asc' | 'desc';         // Default: 'desc'
+  };
+}
+```
 
 **Response:**
 
@@ -331,11 +345,18 @@ Get all runs with full details for a batch. This is the primary endpoint for rea
 {
   runs: Array<{
     eval_run_id: string;
-    status: 'queued' | 'running' | 'completed' | 'failed';
+    status:
+      | 'queued'
+      | 'dispatched'
+      | 'running'
+      | 'completed'
+      | 'failed'
+      | 'cancelled';
     task_name: string;
-    conversation_display_id: string;
-    agent_version_display_id?: string;
-    test_case_display_id?: string;
+    resource_type: 'agent' | 'workforce';
+    resource_execution_id: string;
+    resource_version_id?: string;
+    test_case_id?: string;
     error_message?: string;
     debug_info?: object;
     result?: {
@@ -350,12 +371,14 @@ Get all runs with full details for a batch. This is the primary endpoint for rea
     };
   }>;
   total_count: number;
+  page: number;
+  page_size: number;
 }
 ```
 
 ---
 
-### GET /evals/batches/:eval_batch_id/summary
+### GET /evals/:resource_type/:resource_id/batches/:eval_batch_id/summary
 
 Get summary info for a batch (overall score, rule definitions).
 
@@ -377,7 +400,7 @@ Get summary info for a batch (overall score, rule definitions).
 
 ---
 
-### POST /evals/runs/:eval_run_id/cancel
+### POST /evals/:resource_type/:resource_id/runs/:eval_run_id/cancel
 
 Cancel a specific eval run.
 
@@ -392,7 +415,7 @@ Cancel a specific eval run.
 
 ---
 
-### POST /evals/batches/:eval_batch_id/cancel
+### POST /evals/:resource_type/:resource_id/batches/:eval_batch_id/cancel
 
 Cancel all pending and running eval runs in a batch.
 
@@ -408,7 +431,7 @@ Cancel all pending and running eval runs in a batch.
 
 ---
 
-### POST /evals/agents/:agent_id/runs
+### POST /evals/:resource_type/:resource_id/runs
 
 List eval runs for an agent with filtering and pagination.
 
@@ -440,7 +463,7 @@ List eval runs for an agent with filtering and pagination.
 
 ---
 
-### DELETE /evals/batches/:eval_batch_id
+### DELETE /evals/:resource_type/:resource_id/batches/:eval_batch_id
 
 Delete a batch and all its runs.
 
@@ -452,7 +475,7 @@ Delete a batch and all its runs.
 // Enums
 type EvalRunStatus = 'queued' | 'running' | 'completed' | 'failed';
 type EvalRunType = 'score_only' | 'generate_and_score';
-type EvalResourceType = 'agent' | 'workforce';
+type EvalResourceType = 'agent' | 'workforce'; // 'workforce' coming soon
 
 // Rule definition
 interface UserRuleDefinition {
@@ -465,7 +488,7 @@ interface UserRuleDefinition {
 interface EvalRule {
   name: string;
   rule: string;
-  display_id: string;
+  rule_id: string;
   created_at: string;
 }
 
@@ -482,7 +505,7 @@ interface EvalResponse {
 
 // Test case
 interface TestCase {
-  display_id: string;
+  test_case_id: string;
   name: string;
   prompt: string;
   max_turns: number;
@@ -494,7 +517,7 @@ interface TestCase {
 
 // Test set summary
 interface TestSetSummary {
-  display_id: string;
+  test_set_id: string;
   name: string;
   test_case_count: number;
   project_id: string;

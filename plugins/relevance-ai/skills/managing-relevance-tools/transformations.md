@@ -388,6 +388,53 @@ Supports: PDF, Word, CSV, Excel
 | `api_call`                   | `{{response_body}}`   | `{{step.response_body}}`                      |
 | `relevance_api_call`         | `{{response_body}}`   | `{{step.response_body}}` (auth auto-injected) |
 
+## Email Transformations
+
+### send_email (OAuth — Gmail/Outlook)
+
+Sends email through user's Gmail or Outlook via OAuth.
+
+**Critical:** Provider must use the `_oneof_type_` discriminator pattern:
+
+```json
+{
+  "name": "send_email",
+  "transformation": "send_email",
+  "params": {
+    "provider": { "_oneof_type_": "Gmail" },
+    "oauth_account_id": "{{gmail_account}}",
+    "to": ["recipient@example.com"],
+    "subject": "{{subject}}",
+    "body": "{{email_body}}"
+  }
+}
+```
+
+| Param              | Type   | Notes                                                                        |
+| ------------------ | ------ | ---------------------------------------------------------------------------- |
+| `provider`         | object | `{"_oneof_type_": "Gmail"}` or `{"_oneof_type_": "Outlook"}` -- NOT a string |
+| `oauth_account_id` | string | Connected OAuth account ID                                                   |
+| `to`               | array  | MUST be array, not string                                                    |
+| `subject`          | string | Email subject                                                                |
+| `body`             | string | Supports Markdown (auto-rendered to HTML)                                    |
+
+Optional: `cc`, `bcc` (arrays), `thread_id`, `draft` (boolean), `attachments` (filename -> URL map).
+
+### send_email_step (Mailgun — Server-Side)
+
+For internal/agent use. No OAuth needed.
+
+```json
+{
+  "transformation": "send_email_step",
+  "params": {
+    "recipientEmails": ["user@example.com"],
+    "subject": "Subject here",
+    "body": { "html": "<p>HTML body</p>" }
+  }
+}
+```
+
 ## Common Gotchas
 
 ### 1. prompt_completion uses `{{answer}}` NOT `{{text}}`
@@ -528,3 +575,64 @@ output:
       properties:
         hs_timestamp: '{{get_timestamp.timestamp}}'
 ```
+
+### 9. JS code steps: use backtick template literals, NOT single quotes
+
+**Problem:** Single-quoted template literals break when values contain apostrophes.
+
+`{{param}}` is resolved server-side before the JS code runs (string substitution, not JS evaluation), so backticks are safe for this purpose. However, they are not a security boundary — do not use them for untrusted input that could contain backticks or `${...}` syntax.
+
+```javascript
+// WRONG - breaks if param contains an apostrophe (e.g., "O'Brien")
+const name = '{{name}}';
+
+// BETTER - handles apostrophes in values
+const name = `{{name}}`;
+
+// BEST for complex data - use native steps access (no template injection needed)
+const name = steps.previous_step.output.name;
+```
+
+### 10. JS code steps: handle array params that may serialize as strings
+
+When a tool param is typed as `array`, `{{param}}` may serialize as a comma-separated string. Always handle both:
+
+```javascript
+let items = `{{items}}`;
+try {
+  items = JSON.parse(items);
+} catch {
+  items = items
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+```
+
+### 11. Variable shadowing in JS code steps
+
+state_mapping keys are pre-declared by the runtime. Never use `const` or `let` to declare a variable with the same name as a state_mapping key -- it will shadow the injected value.
+
+### 12. `params_schema` must use proper JSON Schema structure
+
+`params_schema` MUST be a valid JSON Schema object with `properties` wrapper:
+
+```json
+// CORRECT
+{
+  "type": "object",
+  "required": ["email"],
+  "properties": {
+    "email": {"type": "string", "title": "Email"}
+  }
+}
+
+// WRONG - flat format, UI cannot render it
+{
+  "email": {"type": "string", "title": "Email"}
+}
+```
+
+### 13. Step-level conditions not supported
+
+The `condition` property on transformation steps returns 422. Handle conditional logic within the steps themselves (e.g., instruct the LLM to return null, or handle in a downstream JS step). Use `if` for conditional steps instead.

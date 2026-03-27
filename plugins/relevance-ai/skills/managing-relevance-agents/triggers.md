@@ -10,13 +10,14 @@ Triggers **feed the agent's unit of action** — delivering work so the agent ca
 
 Event-driven triggers fire **when something happens**. The external system pushes the event to Relevance AI, and the agent runs immediately in response.
 
-| Trigger             | Event Source                                          | Unit of Action          |
-| ------------------- | ----------------------------------------------------- | ----------------------- |
-| `webhook`           | Salesforce Flow, Zapier, HubSpot workflow, custom app | One record that changed |
-| `gmail` / `outlook` | Incoming email                                        | One email to process    |
-| `slack`             | Slack message                                         | One message/thread      |
-| `unipile_linkedin`  | LinkedIn message                                      | One conversation        |
-| `google_calendar`   | Calendar event                                        | One meeting to prep     |
+| Trigger             | Event Source                                   | Unit of Action          |
+| ------------------- | ---------------------------------------------- | ----------------------- |
+| `custom_webhook`    | Zapier, Make, HubSpot workflow, CRM automation | One record with payload |
+| `webhook`           | Simple HTTP POST from any source               | One request             |
+| `gmail` / `outlook` | Incoming email                                 | One email to process    |
+| `slack`             | Slack message                                  | One message/thread      |
+| `unipile_linkedin`  | LinkedIn message                               | One conversation        |
+| `google_calendar`   | Calendar event                                 | One meeting to prep     |
 
 **Strengths:**
 
@@ -41,14 +42,15 @@ The CRM admin sets up a workflow/flow that fires when a field changes and meets 
 
 ```
 Typeform → Zapier               Relevance AI
-┌──────────────────────┐       ┌──────────────────────┐
-│ New submission        │       │ Webhook trigger       │
-│ → Zap sends POST ────┼─HTTP─>│ → Agent task:         │
-│   with form data      │       │   "Qualify this lead" │
-└──────────────────────┘       └──────────────────────┘
+┌──────────────────────┐       ┌──────────────────────────┐
+│ New submission        │       │ Custom webhook trigger     │
+│ → Zap sends POST ────┼─HTTP─>│ → message_template maps   │
+│   with form data      │       │   payload → Agent task:   │
+│                       │       │   "Qualify this lead"     │
+└──────────────────────┘       └──────────────────────────┘
 ```
 
-No code needed — Zapier's webhook action sends the payload directly to the agent's webhook URL.
+No code needed — Zapier's webhook action sends the payload directly to the agent's `custom_webhook` URL. The `message_template` controls how the payload is passed to the agent.
 
 **Example: Slack message triggers agent**
 
@@ -137,17 +139,18 @@ Is this time-based work (reports, digests, monitoring)?
 
 ## Trigger Types
 
-| Type               | Description         | Use Case                      |
-| ------------------ | ------------------- | ----------------------------- |
-| `gmail`            | Email received      | Email assistant, auto-replies |
-| `outlook`          | Outlook email       | Enterprise email workflows    |
-| `google_calendar`  | Calendar events     | Meeting prep, scheduling      |
-| `slack`            | Slack messages      | Team automation               |
-| `unipile_linkedin` | LinkedIn messages   | Sales outreach                |
-| `unipile_whatsapp` | WhatsApp messages   | Customer support              |
-| `unipile_telegram` | Telegram messages   | Bot automation                |
-| `webhook`          | Custom webhooks     | External integrations         |
-| `recurring`        | Scheduled execution | Daily reports, checks         |
+| Type               | Description                   | Use Case                                       |
+| ------------------ | ----------------------------- | ---------------------------------------------- |
+| `gmail`            | Email received                | Email assistant, auto-replies                  |
+| `outlook`          | Outlook email                 | Enterprise email workflows                     |
+| `google_calendar`  | Calendar events               | Meeting prep, scheduling                       |
+| `slack`            | Slack messages                | Team automation                                |
+| `unipile_linkedin` | LinkedIn messages             | Sales outreach                                 |
+| `unipile_whatsapp` | WhatsApp messages             | Customer support                               |
+| `unipile_telegram` | Telegram messages             | Bot automation                                 |
+| `webhook`          | Simple webhook endpoint       | Basic HTTP POST trigger                        |
+| `custom_webhook`   | Webhook with message template | Zapier, Make, CRM workflows with field mapping |
+| `recurring`        | Scheduled execution           | Daily reports, checks                          |
 
 ## Managing Triggers
 
@@ -309,7 +312,32 @@ relevance_create_trigger({
 });
 ```
 
-### Webhook Trigger
+### Webhook Triggers
+
+There are two webhook trigger types. **Use `custom_webhook` for most integrations** (Zapier, Make, CRM workflows) — it supports message templates and field mapping. Use plain `webhook` only when you need a simple endpoint with no message transformation.
+
+#### Custom Webhook (recommended for Zapier, Make, CRM integrations)
+
+```typescript
+relevance_create_trigger({
+  agentId: '...',
+  triggerType: 'custom_webhook',
+  config: {
+    webhook_name: 'Zapier Webhook', // optional: display name
+    webhook_description: 'Receives form submissions', // optional: description
+    message_template: '{{$}}', // required: template for agent message
+    // Use {{$}} to pass the entire payload, or {{field_name}} for specific fields
+    mapping: {
+      unique_id: '', // optional: jq path for idempotency (e.g. ".data.id")
+      thread_id: '', // optional: jq path for conversation threading (e.g. ".data.thread_id")
+    },
+  },
+});
+```
+
+#### Simple Webhook
+
+Use when you just need a URL to POST to with no message transformation.
 
 ```typescript
 relevance_create_trigger({

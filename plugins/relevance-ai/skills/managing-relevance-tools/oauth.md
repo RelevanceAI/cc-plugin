@@ -9,6 +9,14 @@ When a tool needs to access a third-party API that requires OAuth authentication
 1. Add an OAuth account parameter to the tool
 2. Pass the account ID to transformation steps that need it
 
+**Key rules:**
+
+- Never hardcode `oauth_account_id` in tool step params
+- Always make it a top-level `params_schema` input
+- Add to `state_mapping` as `"oauth_account_id": "params.oauth_account_id"`
+- Reference in steps as `{{oauth_account_id}}`
+- Set to "Set Manually" by default (never auto-assign)
+
 ## Define OAuth Parameter
 
 Add a parameter with `content_type: oauth_account` in the metadata:

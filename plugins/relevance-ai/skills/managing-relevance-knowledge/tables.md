@@ -58,6 +58,8 @@ relevance_list_knowledge_rows({
 
 ### With Filters
 
+**Important:** Filter field names require the `data.` prefix because row fields are nested under `data`:
+
 ```
 relevance_list_knowledge_rows({
   knowledge_set: "my-table",
@@ -65,7 +67,7 @@ relevance_list_knowledge_rows({
   page: 1,
   filters: [
     {
-      field: "domain",
+      field: "data.domain",
       filter_type: "exact_match",
       condition_value: "acme.com"
     }

@@ -244,3 +244,14 @@ If an agent was published to the marketplace with phantom tools already leaked i
 ### `params_schema` Is Valid — Don't Strip It
 
 A common mistake when cleaning actions is deleting `params_schema`. This field IS valid on action configs and is used for tool input schemas. Don't remove it.
+
+### Blocked Fields in MCP Plugin
+
+The following agent config fields are **blocked from modification** via `relevance_patch_agent` and `relevance_upsert_agent` because they control phantom tool injection and can cause hard-to-reverse damage if set incorrectly:
+
+- `tags` — controls `tag_agent_conversation` phantom tool. **Not** a general-purpose metadata/labelling field.
+- `custom_metadata` — controls `add_conversation_metadata` / `read_conversation_metadata` phantom tools.
+- `escalations` — controls `escalate_to_manager` phantom tool.
+- `remote_mcp_configs` — controls `mcp_remote_tool_call` phantom tool.
+
+These fields are silently stripped before the patch is applied. To modify them, use the Relevance AI dashboard UI.

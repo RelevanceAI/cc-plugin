@@ -21,22 +21,24 @@ Skill for creating, configuring, running, and debugging Relevance AI agents.
 
 ## MCP Tools
 
-| Tool                              | Description                                   |
-| --------------------------------- | --------------------------------------------- |
-| `relevance_list_agents`           | List all agents (supports search)             |
-| `relevance_get_agent`             | Get full agent config                         |
-| `relevance_upsert_agent`          | Create basic agent                            |
-| `relevance_save_agent_draft`      | Save full agent config as draft               |
-| `relevance_publish_agent`         | Publish agent draft to live                   |
-| `relevance_trigger_agent`         | Send message to agent and poll for completion |
-| `relevance_get_agent_tools`       | Get agent's tools with action_ids             |
-| `relevance_attach_tools_to_agent` | Attach tools to an agent                      |
-| `relevance_get_task_view`         | Get conversation details                      |
-| `relevance_list_conversations`    | List agent conversations                      |
-| `relevance_list_agent_triggers`   | List agent triggers                           |
-| `relevance_create_trigger`        | Create trigger                                |
-| `relevance_delete_trigger`        | Delete trigger                                |
-| `relevance_list_oauth_accounts`   | List OAuth accounts for triggers              |
+| Tool                              | Description                                    |
+| --------------------------------- | ---------------------------------------------- |
+| `relevance_list_agents`           | List all agents (supports search)              |
+| `relevance_get_agent`             | Get full agent config                          |
+| `relevance_upsert_agent`          | Create basic agent                             |
+| `relevance_save_agent_draft`      | Save full agent config as draft                |
+| `relevance_publish_agent`         | Publish agent draft to live                    |
+| `relevance_trigger_agent`         | Send message to agent (async, fire-and-forget) |
+| `relevance_trigger_agent_sync`    | Send message and wait for completion           |
+| `relevance_poll_agent_result`     | Poll for agent run status and response         |
+| `relevance_get_agent_tools`       | Get agent's tools with action_ids              |
+| `relevance_attach_tools_to_agent` | Attach tools to an agent                       |
+| `relevance_get_task_view`         | Get conversation details                       |
+| `relevance_list_conversations`    | List agent conversations                       |
+| `relevance_list_agent_triggers`   | List agent triggers                            |
+| `relevance_create_trigger`        | Create trigger                                 |
+| `relevance_delete_trigger`        | Delete trigger                                 |
+| `relevance_list_oauth_accounts`   | List OAuth accounts for triggers               |
 
 ## Critical Rules
 

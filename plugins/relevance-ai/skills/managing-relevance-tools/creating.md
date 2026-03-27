@@ -325,17 +325,31 @@ relevance_upsert_tool({
 
 Every tool MUST have a `state_mapping` field that maps input params to template variables. Without this, `{{search_query}}` won't resolve even when the agent passes the parameter.
 
+### How `state_mapping` works
+
+The `state_mapping` connects two things:
+
+- **Keys** = alias names used in `{{template}}` references (these are just plain names, NO prefix)
+- **Values** = JSONPath into the tool's internal state (these DO use `params.` or `steps.` prefixes)
+
+**The `params.` prefix belongs ONLY in state_mapping values, NEVER in params_schema property names:**
+
 ```json
 {
   "params_schema": {
-    "properties": { "search_query": { "type": "string" } }
+    "type": "object",
+    "properties": {
+      "search_query": { "type": "string" }
+    }
   },
   "state_mapping": {
-    "search_query": "params.search_query"
+    "search_query": "params.search_query",
+    "search": "steps.search.output"
   },
   "transformations": {
     "steps": [
       {
+        "name": "search",
         "transformation": "serper_google_search",
         "params": { "search_query": "{{search_query}}" }
       }
@@ -343,6 +357,13 @@ Every tool MUST have a `state_mapping` field that maps input params to template 
   }
 }
 ```
+
+| Where                            | Uses `params.` prefix? | Example                                 |
+| -------------------------------- | ---------------------- | --------------------------------------- |
+| `params_schema` property names   | **NO**                 | `"search_query": { "type": "string" }`  |
+| `state_mapping` keys             | **NO**                 | `"search_query": "params.search_query"` |
+| `state_mapping` values           | **YES**                | `"search_query": "params.search_query"` |
+| `transformations.steps[].params` | **NO**                 | `"search_query": "{{search_query}}"`    |
 
 **CRITICAL:** Do NOT use curly braces in state_mapping values!
 
@@ -352,6 +373,19 @@ Every tool MUST have a `state_mapping` field that maps input params to template 
 
 // CORRECT - no curly braces
 "state_mapping": { "name": "params.name" }
+```
+
+### JS code steps vs non-JS steps
+
+**JS code steps** have native access to a `steps` global object at runtime (e.g., `steps.search.output`), so they can access inter-step data directly without state_mapping. Prefer the native `steps` object over template injection for complex data. Do NOT put inter-step outputs in state_mapping for JS steps -- this creates phantom params the UI flags as missing.
+
+**Non-JS steps** (prompt_completion, api_call, etc.) rely entirely on state_mapping for template resolution. When a non-JS step needs a previous step's output, you MUST add a state_mapping entry:
+
+```json
+"state_mapping": {
+  "query": "params.query",
+  "search_results": "steps.search.output"
+}
 ```
 
 ## Fixing Auto-Generated Tool Outputs
@@ -423,11 +457,35 @@ Then use template substitution: `api_key = '{{_api_key}}'`
 
 ---
 
+## Step Naming Rules
+
+- **Never prefix step names with `steps.`** -- the namespace is added automatically by the template resolver
+- Step names should be plain identifiers: `calc_date`, `fetch_contacts`, `format_output`
+- `steps.` belongs only in REFERENCES: `{{steps.calc_date.output}}` or state_mapping values like `"steps.calc_date.output"`
+- If the UI shows `steps.calc_date` as the output variable, the actual step name is just `calc_date`
+
+```json
+// WRONG - double-prefixed, breaks references
+{ "name": "steps.search", ... }
+
+// CORRECT - plain identifier
+{ "name": "search", ... }
+```
+
+## Template Injection Size Limit
+
+Template injection (`{{steps.stepName.output}}`) has a size limit (~5-10KB). If a previous step returns a large response (e.g., batch API results with HTML bodies), the injection truncates silently, causing `JSON.parse()` to fail.
+
+**Symptoms:** Step reports 0 results even though the API call succeeded. Same API call works in a standalone tool.
+
+**Workaround:** Split into a list tool (returns IDs/metadata only) + a reader tool (reads one record at a time). This keeps each response small enough for template injection.
+
 ## Best Practices
 
-1. **Use descriptive step names** - Makes debugging easier
+1. **Use descriptive step names** - Plain identifiers, never prefix with `steps.`
 2. **Map outputs explicitly** - Don't rely on implicit variable names
 3. **Test incrementally** - Add one step at a time
 4. **Document with prompt_description** - Help AI know when to use the tool
 5. **Handle errors in Python steps** - Add try/catch for robustness
 6. **Validate every tool before attaching to agents** - Test with `relevance_run_tool` to catch empty output issues
+7. **Use backtick template literals in JS steps** - Never use single quotes (`'{{param}}'`), which break with apostrophes in values

@@ -28,7 +28,7 @@ Agent Evals provide a systematic way to evaluate AI agent performance against de
 
 **Key Difference:**
 
-- `score_only` uses **agent-level rules** (created via `POST /evals/rules`)
+- `score_only` uses **agent-level rules** (created via `POST /evals/{resource_type}/{resource_id}/rules`)
 - `generate_and_score` uses **test case rules** (expectedOutcomes defined in test cases)
 
 ---
@@ -73,22 +73,22 @@ Agent Evals provide a systematic way to evaluate AI agent performance against de
 ```typescript
 // First, check existing test sets (optional - for reference)
 const testSets = await relevance_api_request({
-  endpoint: `/evals/test-sets/agent/${agentId}`,
+  endpoint: `/evals/agent/${agentId}/test-sets`,
   method: 'GET',
 });
 // Returns: { test_sets: [{ display_id, name, test_case_count, is_default }, ...] }
 
 // ALWAYS create a NEW test set - don't use the default
 const newTestSet = await relevance_api_request({
-  endpoint: `/evals/test-sets/agent/${agentId}`,
+  endpoint: `/evals/agent/${agentId}/test-sets`,
   method: 'POST',
   body: {
     name: 'My Agent Test Suite', // Use a descriptive name
     test_case_ids: [], // Start empty, add test cases in Step 2
   },
 });
-// Returns: { display_id: "..." }
-const testSetId = newTestSet.display_id; // Save this for Step 2
+// Returns: { test_set_id: "..." }
+const testSetId = newTestSet.test_set_id; // Save this for Step 2
 ```
 
 ### Step 2: Create Test Cases
@@ -154,7 +154,7 @@ const { test_cases } = await relevance_api_request({
 
 // Run evaluation with selected test cases
 const evalResult = await relevance_api_request({
-  endpoint: `/evals/agents/${agentId}/conversations`,
+  endpoint: `/evals/agent/${agentId}/evaluate`,
   method: 'POST',
   body: {
     conversation_ids: [], // Empty for generate_and_score
@@ -168,17 +168,13 @@ const evalResult = await relevance_api_request({
 
 ### Step 4: Poll & Read Results
 
-Use two endpoints: `/runs` for per-run details, `/summary` for the overall score.
+Use two endpoints: `POST .../runs` with a `batch_id` filter for per-run details, `GET .../batches/{id}/summary` for the overall score.
 
-> **NOTE:** `GET /evals/runs/{eval_run_id}` does NOT exist. Always use the batch endpoint to get run details.
+1. **Poll summary until complete:** Call `GET /evals/{resource_type}/{resource_id}/batches/{evalBatchId}/summary` until `tasks_evaluated >= total_runs`. Returns `{ tasks_evaluated, total_runs, summary_score, name, rules }`.
 
-1. **Get all runs:** Call `relevance_api_request` with `GET /evals/batches/{evalBatchId}/runs`. Returns `{ runs: EvalRunDetail[], total_count: number }`.
-
-2. **Poll until complete:** Keep calling the runs endpoint until no runs have status `running` or `queued`.
+2. **Get all runs:** Call `POST /evals/{resource_type}/{resource_id}/runs` with body `{ filters: [{ type: "batch_id", batch_id: evalBatchId }] }`. Returns `{ runs: [...], total_count: number }`.
 
 3. **Read results:** Each completed run has `result.rule_results` inline with `rule_name`, `passed`, and `reason` for each rule.
-
-4. **Get summary (optional):** Call `GET /evals/batches/{evalBatchId}/summary` for the overall score. Returns `{ tasks_evaluated, total_runs, summary_score, name, rules }`.
 
 ---
 
@@ -281,19 +277,19 @@ Examples:
 ```typescript
 // List all test sets for an agent
 const { test_sets } = await relevance_api_request({
-  endpoint: `/evals/test-sets/agent/${agentId}`,
+  endpoint: `/evals/agent/${agentId}/test-sets`,
   method: 'GET',
 });
 
 // Delete an old test set (also deletes its test cases)
 await relevance_api_request({
-  endpoint: `/evals/test-sets/${testSetId}`,
+  endpoint: `/evals/agent/${agentId}/test-sets/${testSetId}`,
   method: 'DELETE',
 });
 
 // Update test set name
 await relevance_api_request({
-  endpoint: `/evals/test-sets/${testSetId}`,
+  endpoint: `/evals/agent/${agentId}/test-sets/${testSetId}`,
   method: 'PUT',
   body: { name: 'New Test Set Name' },
 });
@@ -304,8 +300,8 @@ await relevance_api_request({
 When re-running evals, start clean:
 
 1. List existing test cases with `GET /evals/agent/{agentId}/test-cases`
-2. Delete each test case by calling `DELETE /evals/test-cases/{display_id}` for each one
-3. Create a fresh test set with `POST /evals/test-sets/agent/{agentId}`
+2. Delete each test case by calling `DELETE /evals/agent/{agentId}/test-cases/{display_id}` for each one
+3. Create a fresh test set with `POST /evals/agent/{agentId}/test-sets`
 4. Add new test cases to the fresh test set (continue with Step 2 of the workflow)
 
 ---
@@ -318,44 +314,43 @@ Evals use `relevance_api_request` since there are no dedicated MCP tools. The wo
 
 ### Test Case Endpoints
 
-| Method   | Endpoint                             | Description      |
-| -------- | ------------------------------------ | ---------------- |
-| `POST`   | `/evals/agent/{agent_id}/test-cases` | Create test case |
-| `GET`    | `/evals/agent/{agent_id}/test-cases` | List test cases  |
-| `GET`    | `/evals/test-cases/{test_case_id}`   | Get test case    |
-| `PUT`    | `/evals/test-cases/{test_case_id}`   | Update test case |
-| `DELETE` | `/evals/test-cases/{test_case_id}`   | Delete test case |
+| Method   | Endpoint                                                         | Description      |
+| -------- | ---------------------------------------------------------------- | ---------------- |
+| `POST`   | `/evals/agent/{agent_id}/test-cases`                             | Create test case |
+| `GET`    | `/evals/agent/{agent_id}/test-cases`                             | List test cases  |
+| `GET`    | `/evals/{resource_type}/{resource_id}/test-cases/{test_case_id}` | Get test case    |
+| `PUT`    | `/evals/{resource_type}/{resource_id}/test-cases/{test_case_id}` | Update test case |
+| `DELETE` | `/evals/{resource_type}/{resource_id}/test-cases/{test_case_id}` | Delete test case |
 
 ### Test Set Endpoints
 
-| Method   | Endpoint                            | Description     |
-| -------- | ----------------------------------- | --------------- |
-| `POST`   | `/evals/test-sets/agent/{agent_id}` | Create test set |
-| `GET`    | `/evals/test-sets/agent/{agent_id}` | List test sets  |
-| `PUT`    | `/evals/test-sets/{test_set_id}`    | Update test set |
-| `DELETE` | `/evals/test-sets/{test_set_id}`    | Delete test set |
+| Method   | Endpoint                                                       | Description     |
+| -------- | -------------------------------------------------------------- | --------------- |
+| `POST`   | `/evals/{resource_type}/{resource_id}/test-sets`               | Create test set |
+| `GET`    | `/evals/{resource_type}/{resource_id}/test-sets`               | List test sets  |
+| `PUT`    | `/evals/{resource_type}/{resource_id}/test-sets/{test_set_id}` | Update test set |
+| `DELETE` | `/evals/{resource_type}/{resource_id}/test-sets/{test_set_id}` | Delete test set |
 
 ### Evaluation Endpoints
 
-| Method   | Endpoint                                                 | Description                        |
-| -------- | -------------------------------------------------------- | ---------------------------------- |
-| `POST`   | `/evals/agents/{agent_id}/conversations`                 | Trigger evaluation                 |
-| `GET`    | `/evals/batches/{eval_batch_id}/runs`                    | Get all runs with full details     |
-| `GET`    | `/evals/batches/{eval_batch_id}/summary`                 | Get batch summary score            |
-| `POST`   | `/evals/agents/{agent_id}/runs`                          | List runs for agent (with filters) |
-| `POST`   | `/evals/runs/{eval_run_id}/cancel`                       | Cancel a specific run              |
-| `POST`   | `/evals/batches/{eval_batch_id}/cancel`                  | Cancel all runs in a batch         |
-| `GET`    | `/evals/resources/{resource_type}/{resource_id}/batches` | List batches for a resource        |
-| `DELETE` | `/evals/batches/{eval_batch_id}`                         | Delete batch                       |
+| Method   | Endpoint                                                               | Description                 |
+| -------- | ---------------------------------------------------------------------- | --------------------------- |
+| `POST`   | `/evals/{resource_type}/{resource_id}/evaluate`                        | Trigger evaluation          |
+| `POST`   | `/evals/{resource_type}/{resource_id}/runs`                            | List runs (filter by batch) |
+| `GET`    | `/evals/{resource_type}/{resource_id}/batches/{eval_batch_id}/summary` | Get batch summary score     |
+| `POST`   | `/evals/{resource_type}/{resource_id}/runs/{eval_run_id}/cancel`       | Cancel a specific run       |
+| `POST`   | `/evals/{resource_type}/{resource_id}/batches/{eval_batch_id}/cancel`  | Cancel all runs in a batch  |
+| `GET`    | `/evals/{resource_type}/{resource_id}/batches`                         | List batches for a resource |
+| `DELETE` | `/evals/{resource_type}/{resource_id}/batches/{eval_batch_id}`         | Delete batch                |
 
-### Agent-Level Rule Endpoints (for score_only mode)
+### Resource-Level Rule Endpoints (for score_only mode)
 
-| Method   | Endpoint                      | Description |
-| -------- | ----------------------------- | ----------- |
-| `POST`   | `/evals/rules`                | Create rule |
-| `GET`    | `/evals/rules/{agent_id}`     | List rules  |
-| `PATCH`  | `/evals/rules/{eval_rule_id}` | Update rule |
-| `DELETE` | `/evals/rules/{eval_rule_id}` | Delete rule |
+| Method   | Endpoint                                                    | Description |
+| -------- | ----------------------------------------------------------- | ----------- |
+| `POST`   | `/evals/{resource_type}/{resource_id}/rules`                | Create rule |
+| `GET`    | `/evals/{resource_type}/{resource_id}/rules`                | List rules  |
+| `PATCH`  | `/evals/{resource_type}/{resource_id}/rules/{eval_rule_id}` | Update rule |
+| `DELETE` | `/evals/{resource_type}/{resource_id}/rules/{eval_rule_id}` | Delete rule |
 
 ## Writing Effective Rules
 
@@ -384,7 +379,7 @@ Rules are evaluated by an LLM judge. Write rules that are:
 
 This happens when using `score_only` mode without agent-level rules.
 
-- **Solution:** Either create agent-level rules first with `POST /evals/rules`, or use `generate_and_score` with test cases.
+- **Solution:** Either create agent-level rules first with `POST /evals/{resource_type}/{resource_id}/rules`, or use `generate_and_score` with test cases.
 
 ### "scenario_ids are required when type is 'generate_and_score'"
 
@@ -429,9 +424,9 @@ The LLM judge can't determine pass/fail clearly.
   eval_run_id: string;
   status: "queued" | "running" | "completed" | "failed";
   task_name: string;                    // Test case name
-  conversation_display_id: string;      // Generated conversation ID
-  agent_version_display_id?: string;    // Agent version used
-  test_case_display_id?: string;        // Test case ID (generate_and_score only)
+  resource_execution_id: string;        // Generated conversation ID
+  resource_version_id?: string;         // Agent version used
+  test_case_id?: string;                // Test case ID (generate_and_score only)
   error_message?: string;               // Present when status is "failed"
   debug_info?: object;
   result?: {                            // Present when status is "completed"
@@ -446,16 +441,18 @@ The LLM judge can't determine pass/fail clearly.
 }
 ```
 
-### GET /evals/batches/:id/runs Response
+### POST /evals/:resource_type/:resource_id/runs Response
 
 ```typescript
 {
-  runs: EvalRunDetail[];        // Full details for each run
+  runs: Array<{...}>;              // Full details for each run (see API reference)
   total_count: number;
+  page: number;
+  page_size: number;
 }
 ```
 
-### GET /evals/batches/:id/summary Response
+### GET /evals/:resource_type/:resource_id/batches/:id/summary Response
 
 ```typescript
 {

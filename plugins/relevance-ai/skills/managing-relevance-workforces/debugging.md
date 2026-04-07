@@ -200,3 +200,7 @@ Then have the orchestrator extract data from the sub-agent's response text. See 
 ✅ Research → Generate → Deliver
 ❌ Research → Deliver → Generate
 ```
+
+## Reporting Issues
+
+If debugging reveals a platform bug, unexpected behavior, or a gap in workforce capabilities, submit a report via `POST /bugs/submit` using `relevance_api_request`. See the [bug reporting guide](../managing-relevance-agents/report-bugs.md) for the full schema. Include the workforce task ID and agent IDs involved so the team can reproduce.

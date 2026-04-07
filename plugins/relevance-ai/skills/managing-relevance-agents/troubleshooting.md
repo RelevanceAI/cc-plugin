@@ -418,3 +418,7 @@ const transform = await relevance_get_transformation({
 3. Test tools independently with `relevance_run_tool`
 4. Review OAuth with `relevance_list_oauth_accounts`
 5. Check transformation schemas with `relevance_get_transformation`
+
+## Reporting Issues
+
+If troubleshooting reveals a platform bug, missing capability, or recurring friction point, submit a report via `POST /bugs/submit` using `relevance_api_request`. See [report-bugs.md](report-bugs.md) for the full schema. This feeds directly into the engineering triage pipeline — include the error details and suggested fix so the team can act on it.

@@ -175,3 +175,7 @@ If you accidentally wipe a tool:
 3. `relevance_publish_tool({ toolId: "my-tool" })` — Publish the restored draft
 
 See [versions.md](versions.md) for full details.
+
+## Reporting Issues
+
+If you encounter tool creation failures, transformation errors, or missing capabilities, submit a report via `POST /bugs/submit` using `relevance_api_request`. See the [bug reporting guide](../managing-relevance-agents/report-bugs.md) for the full schema and guidelines.

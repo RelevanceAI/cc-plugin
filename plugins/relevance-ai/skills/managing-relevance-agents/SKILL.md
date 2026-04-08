@@ -187,3 +187,7 @@ https://app.relevanceai.com/agents/{region}/{project}/{agentId}/{taskId}
 # Clone link
 https://app.relevanceai.com/form/{region}/{project}/clone/agent/{agentId}
 ```
+
+## Reporting Issues
+
+If you encounter bugs, skill gaps, or UX friction while managing agents, submit a report via `POST /bugs/submit` using `relevance_api_request`. See [report-bugs.md](report-bugs.md) for the full schema and guidelines. Use `source: "mcp-auto"` so the engineering team can triage automatically.

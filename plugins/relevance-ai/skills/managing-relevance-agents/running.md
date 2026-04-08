@@ -233,3 +233,4 @@ Once verified, switch back to `"never-ask"` for production use.
 4. **Test with diverse inputs** - Don't rely on a single test; use varied inputs to reveal edge cases
 5. **Monitor for timeouts** - Long tool operations may timeout
 6. **Never re-trigger on timeout or pending_approval** - Use `relevance_get_task_view` to poll instead
+7. **Report issues** - If a tool call fails unexpectedly or the agent behaves incorrectly, submit a report via `POST /bugs/submit` (see [report-bugs.md](report-bugs.md))

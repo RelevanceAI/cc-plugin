@@ -1,3 +1,8 @@
+---
+title: Agent Triggers
+description: Configure event-driven and scheduled triggers (webhooks, email, Slack, LinkedIn, schedules) that feed agents work. Load when setting up automation or choosing between polling and push triggers.
+---
+
 # Agent Triggers
 
 Configure agents to respond to external events.
@@ -157,16 +162,16 @@ Is this time-based work (reports, digests, monitoring)?
 ### List Agent Triggers
 
 ```typescript
-relevance_list_agent_triggers({ agentId: '...' });
+relevance_list_agent_triggers({ agent_id: '...' });
 ```
 
 ### Create Trigger
 
 ```typescript
 relevance_create_trigger({
-  agentId: '...',
-  triggerType: 'gmail',
-  config: {
+  agent_id: '...',
+  trigger_type: 'gmail',
+  trigger_config: {
     oauth_account_id: '...',
     oauth_account_label: 'My Gmail',
   },
@@ -176,7 +181,7 @@ relevance_create_trigger({
 ### Delete Trigger
 
 ```typescript
-relevance_delete_trigger({ documentId: 'trigger-doc-id' });
+relevance_delete_trigger({ document_id: 'trigger-doc-id' });
 ```
 
 ## Trigger Configurations
@@ -185,9 +190,9 @@ relevance_delete_trigger({ documentId: 'trigger-doc-id' });
 
 ```typescript
 relevance_create_trigger({
-  agentId: '...',
-  triggerType: 'gmail', // or "outlook"
-  config: {
+  agent_id: '...',
+  trigger_type: 'gmail', // or "outlook"
+  trigger_config: {
     oauth_account_id: 'oauth-account-uuid',
     oauth_account_label: 'Work Gmail', // optional
   },
@@ -198,9 +203,9 @@ relevance_create_trigger({
 
 ```typescript
 relevance_create_trigger({
-  agentId: '...',
-  triggerType: 'unipile_linkedin',
-  config: {
+  agent_id: '...',
+  trigger_type: 'unipile_linkedin',
+  trigger_config: {
     oauth_account_id: '...',
     provider_user_id: '...', // LinkedIn user ID
     is_outreach_reply_only: false, // true = only reply to outreach
@@ -212,11 +217,96 @@ relevance_create_trigger({
 
 ```typescript
 relevance_create_trigger({
-  agentId: '...',
-  triggerType: 'unipile_whatsapp', // or "unipile_telegram"
-  config: {
+  agent_id: '...',
+  trigger_type: 'unipile_whatsapp', // or "unipile_telegram"
+  trigger_config: {
     oauth_account_id: '...',
     provider_user_id: '...',
+  },
+});
+```
+
+### Slack Trigger
+
+Listens for messages in specific Slack channels.
+
+**Setup steps:**
+
+1. Find Slack OAuth account: `relevance_list_oauth_accounts()`
+2. Resolve channel names to IDs: `relevance_list_slack_channels({ oauth_account_id: "..." })`
+3. Create the trigger
+
+```typescript
+relevance_create_trigger({
+  agent_id: '...',
+  trigger_type: 'slack',
+  trigger_config: {
+    oauth_account_id: 'slack-oauth-account-uuid',
+    channels: ['C07AGHNGV9Q'], // Channel IDs from relevance_list_slack_channels
+    keywords: {
+      // Optional: only trigger on matching messages
+      values: ['help', 'support'],
+      config: { case_sensitive: false },
+    },
+    user_ids: [], // Optional: filter to specific Slack user IDs
+    thread_reply_mode: 'auto', // 'auto' = reply in thread, 'none' = new message
+    should_mention_bot: true, // true = only when @mentioned
+  },
+});
+```
+
+**Notes:**
+
+- `channels` requires Slack channel **IDs** (e.g. `C07AGHNGV9Q`), not names. Use `relevance_list_slack_channels` to look up IDs.
+- Set `should_mention_bot: false` to respond to every message in the channel.
+- `keywords` is optional — omit or pass `{ values: [] }` to match all messages.
+
+### Google Calendar Trigger
+
+Triggers the agent on calendar events (e.g., upcoming meetings).
+
+```typescript
+relevance_create_trigger({
+  agent_id: '...',
+  trigger_type: 'google_calendar',
+  trigger_config: {
+    oauth_account_id: 'google-oauth-account-uuid',
+    calendar_id: 'primary', // 'primary' or a specific calendar ID
+    events: {
+      notifications: [
+        {
+          timeOffset: {
+            quantity: 10,
+            unit: 'minutes',
+            direction: 'before',
+          },
+          message: { type: 'raw' },
+        },
+      ],
+    },
+  },
+});
+```
+
+### Teams Trigger
+
+Listens for messages in Microsoft Teams channels.
+
+```typescript
+relevance_create_trigger({
+  agent_id: '...',
+  trigger_type: 'teams',
+  trigger_config: {
+    oauth_account_id: 'teams-oauth-account-uuid',
+    tenant_id: 'microsoft-tenant-id',
+    channels: [],
+    keywords: {
+      values: [],
+      config: { case_sensitive: false },
+    },
+    excluded_keywords: [],
+    thread_reply_mode: 'auto',
+    should_mention_bot: true,
   },
 });
 ```
@@ -241,9 +331,9 @@ Schedule agents to run automatically at specified intervals.
 
 ```typescript
 relevance_create_trigger({
-  agentId: '...',
-  triggerType: 'recurring',
-  config: {
+  agent_id: '...',
+  trigger_type: 'recurring',
+  trigger_config: {
     name: 'Check LinkedIn Comments',
     message: 'Process this LinkedIn post: 123456789',
     schedule: {
@@ -260,9 +350,9 @@ relevance_create_trigger({
 
 ```typescript
 relevance_create_trigger({
-  agentId: '...',
-  triggerType: 'recurring',
-  config: {
+  agent_id: '...',
+  trigger_type: 'recurring',
+  trigger_config: {
     name: 'Daily Report',
     message: 'Generate the daily sales report',
     schedule: {
@@ -278,9 +368,9 @@ relevance_create_trigger({
 
 ```typescript
 relevance_create_trigger({
-  agentId: '...',
-  triggerType: 'recurring',
-  config: {
+  agent_id: '...',
+  trigger_type: 'recurring',
+  trigger_config: {
     name: 'Weekly Summary',
     message: 'Generate weekly metrics summary',
     schedule: {
@@ -297,9 +387,9 @@ relevance_create_trigger({
 
 ```typescript
 relevance_create_trigger({
-  agentId: '...',
-  triggerType: 'recurring',
-  config: {
+  agent_id: '...',
+  trigger_type: 'recurring',
+  trigger_config: {
     name: 'Business Hours Check',
     message: 'Run health check',
     schedule: {
@@ -320,9 +410,9 @@ There are two webhook trigger types. **Use `custom_webhook` for most integration
 
 ```typescript
 relevance_create_trigger({
-  agentId: '...',
-  triggerType: 'custom_webhook',
-  config: {
+  agent_id: '...',
+  trigger_type: 'custom_webhook',
+  trigger_config: {
     webhook_name: 'Zapier Webhook', // optional: display name
     webhook_description: 'Receives form submissions', // optional: description
     message_template: '{{$}}', // required: template for agent message
@@ -341,9 +431,9 @@ Use when you just need a URL to POST to with no message transformation.
 
 ```typescript
 relevance_create_trigger({
-  agentId: '...',
-  triggerType: 'webhook',
-  config: {}, // Returns webhook URL to call
+  agent_id: '...',
+  trigger_type: 'webhook',
+  trigger_config: {}, // Returns webhook URL to call
 });
 ```
 
@@ -381,11 +471,11 @@ For Unipile triggers (LinkedIn/WhatsApp/Telegram), you also need `provider_user_
 Triggers are identified by document IDs. Get these from `relevance_list_agent_triggers`:
 
 ```typescript
-const triggers = await relevance_list_agent_triggers({ agentId: '...' });
+const triggers = await relevance_list_agent_triggers({ agent_id: '...' });
 // triggers.results[0].document_id = "agentId_gmail_oauthId"
 
 // Use to delete
-relevance_delete_trigger({ documentId: 'agentId_gmail_oauthId' });
+relevance_delete_trigger({ document_id: 'agentId_gmail_oauthId' });
 ```
 
 ## Example: Email Assistant Setup
@@ -397,9 +487,9 @@ const gmail = accounts.results.find((a) => a.provider === 'google');
 
 // 2. Create email trigger
 relevance_create_trigger({
-  agentId: 'email-assistant',
-  triggerType: 'gmail',
-  config: {
+  agent_id: 'email-assistant',
+  trigger_type: 'gmail',
+  trigger_config: {
     oauth_account_id: gmail.account_id,
   },
 });
@@ -416,9 +506,9 @@ const linkedin = accounts.results.find(
 
 // 2. Create LinkedIn trigger
 relevance_create_trigger({
-  agentId: 'linkedin-bot',
-  triggerType: 'unipile_linkedin',
-  config: {
+  agent_id: 'linkedin-bot',
+  trigger_type: 'unipile_linkedin',
+  trigger_config: {
     oauth_account_id: linkedin.account_id,
     provider_user_id: linkedin.provider_user_id,
     is_outreach_reply_only: true, // Only respond to outreach replies

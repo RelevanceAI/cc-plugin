@@ -1,3 +1,8 @@
+---
+title: Popular Transformations Catalog
+description: Categorised quick-lookup table of popular transformations (LLM, search, API, web scraping, code execution, email, integrations). Load when you need the right transformation name without reading the full reference.
+---
+
 # Popular Transformations Catalog
 
 Quick reference for the most commonly used tool-step transformations in Relevance AI.

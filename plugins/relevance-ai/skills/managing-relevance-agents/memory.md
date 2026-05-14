@@ -1,3 +1,8 @@
+---
+title: Agent Memory
+description: Configure persistent agent memory — enabling, project vs user scope, categories, and the add/delete memory tools. Load when enabling memory, setting scope, or troubleshooting why facts aren't being retained.
+---
+
 # Agent Memory
 
 A guide to understanding and using the Agent Memory feature in Relevance AI.
@@ -45,26 +50,7 @@ interface AgentMemory {
 
 ### Example Configuration
 
-```typescript
-// Get agent, add memory config, save and publish
-const { agent } = await relevance_get_agent({ agentId: 'my-agent' });
-
-await relevance_save_agent_draft({
-  agentId: agent.agent_id,
-  agentConfig: {
-    ...agent,
-    memory: {
-      enabled: true,
-      memory_level: 'user',
-      enable_delete_tool: true,
-      add_memory_prompt:
-        'Save important user preferences and facts that will help personalize future interactions.',
-    },
-  },
-});
-
-await relevance_publish_agent({ agentId: agent.agent_id });
-```
+Call `relevance_update_agent` with a `patch.memory` object that sets the fields above (saves to draft), then call `relevance_publish_agent` after the user confirms.
 
 ## Memory Levels
 
@@ -201,15 +187,7 @@ Delete memories when:
 
 ### Customizing Prompts
 
-```typescript
-{
-  memory: {
-    enabled: true,
-    add_memory_prompt: "Only save information that the user explicitly asks you to remember. Focus on professional context and project requirements.",
-    delete_memory_prompt: "Delete memories when the user says 'forget' or when information becomes outdated."
-  }
-}
-```
+To override the defaults, call `relevance_update_agent` with `patch: { memory: { enabled: true, add_memory_prompt: "...", delete_memory_prompt: "..." } }`. Either prompt can be customized independently; omitted fields keep the platform defaults.
 
 ## How Memory Recall Works
 

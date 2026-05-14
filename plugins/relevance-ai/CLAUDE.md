@@ -56,22 +56,24 @@ https://api-f1db6c.stack.tryrelevance.com/latest/documentation
 
 Most common gotchas at a glance. Full details and examples are in the skill files above.
 
-### Publish Behavior
+### Publish Behavior — Draft-First, Publish-on-Confirm
 
-| Operation                    | Auto-publishes? | Notes                                                                         |
-| ---------------------------- | --------------- | ----------------------------------------------------------------------------- |
-| `relevance_upsert_tool`      | Yes             | `relevance_publish_tool` returns friendly "already published" if called after |
-| `relevance_save_agent_draft` | Yes (default)   | Pass `autoPublish: false` to save draft only                                  |
-| `relevance_create_workforce` | Configurable    | Use `shouldPublish: true` (default)                                           |
+All agent and tool edits save to **DRAFT only**. Nothing goes live until you explicitly call a publish tool, which always shows the user an approval card. Never publish without first asking "want me to publish this?".
 
-### No Partial Updates for Agents
+| Operation                                                                                                    | Saves where? | How to go live                                                |
+| ------------------------------------------------------------------------------------------------------------ | ------------ | ------------------------------------------------------------- |
+| `relevance_create_agent` / `relevance_update_agent` / `relevance_attach_tools_to_agent` / `relevance_update_agent_action` | Draft        | `relevance_publish_agent` (requires user confirmation)        |
+| `relevance_create_tool` / `relevance_update_tool` / `relevance_add_tool_step` / `relevance_update_tool_step` / `relevance_remove_tool_step` / `relevance_move_tool_step` | Draft        | `relevance_publish_tool` (requires user confirmation)         |
+| `relevance_create_workforce`                                                                                 | Configurable | Use `shouldPublish: true` (default)                           |
 
-Tools auto-merge on update. **Agents do NOT** — always fetch first, merge, then save:
+### Partial Updates Are Supported
+
+`relevance_update_agent` deep-merges your patch into the current draft, so you only need to send the fields you want to change. The same applies to `relevance_update_tool`. No need to fetch-merge-save manually.
 
 ```typescript
-const { agent } = await relevance_get_agent({ agentId: 'x' });
-agent.name = 'new';
-await relevance_save_agent_draft({ agentId: 'x', agentConfig: agent });
+await relevance_update_agent({ agent_id: 'x', patch: { name: 'new' } });
+// later, when the user confirms:
+await relevance_publish_agent({ agent_id: 'x' });
 ```
 
 ### `state_mapping` is REQUIRED for Tools

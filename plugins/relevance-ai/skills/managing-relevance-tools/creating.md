@@ -1,23 +1,29 @@
+---
+title: Creating Tools
+description: Detailed workflow for creating Relevance AI tools — config shape, transformation steps, params/state mapping, output schemas, step editing, and version handling. Load when the SKILL.md overview isn't enough and you need step-by-step config detail.
+---
+
 # Creating Tools
 
 Complete workflow for creating Relevance AI tools (studios).
 
 ## Creating New Tools
 
-### Option 1: Direct Creation with `relevance_upsert_tool`
+### Option 1: Direct Creation with `relevance_create_tool`
 
-Omit `studio_id` to create a new tool with auto-generated UUID:
+Auto-generates a UUID and saves the new tool as a DRAFT — call `relevance_publish_tool` to make it live:
 
 ```typescript
-relevance_upsert_tool({
-  title: "My New Tool",           // REQUIRED for new tools
+relevance_create_tool({
+  title: "My New Tool",           // REQUIRED
   description: "What it does",
   prompt_description: "When AI should use this",
   params_schema: { ... },
   transformations: { steps: [...] },
   state_mapping: { ... }
 })
-// Returns { studio_id: "auto-generated-uuid", version_id: "...", created: true }
+// Returns { studio_id: "auto-generated-uuid", url }
+// Tool is saved as a DRAFT — not yet live. Call relevance_publish_tool to publish.
 ```
 
 ### Option 2: Create from Transformation
@@ -44,13 +50,15 @@ relevance_create_tool_from_transformation({
 
 ## Updating Existing Tools
 
-Provide `studio_id` to update - MCP auto-fetches and merges:
+`relevance_update_tool` auto-fetches the current draft and shallow-merges your fields. It saves to a DRAFT only — call `relevance_publish_tool` when ready:
 
 ```typescript
-relevance_upsert_tool({
+relevance_update_tool({
   studio_id: 'existing-tool-id',
   emoji: '🔍', // Only this changes, everything else preserved
 });
+// Then publish when the user confirms:
+// relevance_publish_tool({ tool_id: 'existing-tool-id' });
 ```
 
 ## Tool Structure
@@ -92,8 +100,7 @@ interface TransformationStep {
 ## Creating a Basic Tool
 
 ```typescript
-relevance_upsert_tool({
-  studio_id: 'my-tool',
+relevance_create_tool({
   title: 'My Tool',
   description: 'What this tool does',
   prompt_description: 'Instructions for AI on when to use this tool',
@@ -192,6 +199,18 @@ params: {
 }
 ```
 
+## Input Naming Rules
+
+> **⚠️ Every `params_schema` property MUST have `title` and `description`.** Tools with unnamed inputs are unusable — agents cannot reason about what to pass, and users editing the tool have no context. Always infer meaningful names from the property key, the transformation it feeds into, and the user's stated intent.
+
+```typescript
+// WRONG — blank or missing title/description
+{ query: { type: "string" } }
+
+// CORRECT — named and described
+{ query: { type: "string", title: "Search Query", description: "The search term to look up" } }
+```
+
 ## Parameter Schema Types
 
 ### String Parameter
@@ -267,55 +286,55 @@ Run steps conditionally:
 }
 ```
 
-## Emoji Formats
+## Emoji / Icon
 
-Tools support these emoji formats:
-
-| Format           | Example                              | Use Case                     |
-| ---------------- | ------------------------------------ | ---------------------------- |
-| Unicode emoji    | `"🔍"`                               | Default, simplest option     |
-| CDN URL          | `"https://cdn.example.com/icon.svg"` | Brand icons, custom graphics |
-| Agent avatar URL | `"https://..."`                      | Match agent branding         |
+The `emoji` field accepts a unicode emoji or a full CDN URL to a brand SVG. **Prefer the brand icon when the tool wraps a known provider** (Slack, HubSpot, Gmail, etc.). See the **Tool Icons** section in [SKILL.md](SKILL.md#tool-icons) for the URL pattern, the list of available filenames, and the common-mistake table.
 
 ## Testing After Creation
 
 ```typescript
 // Sync execution
 relevance_run_tool({
-  studioId: 'my-tool',
+  studio_id: 'my-tool',
   params: { query: 'test query' },
 });
 ```
 
 ## Publishing
 
-After creation, the tool is in draft. To make it active:
+Both create and update save to a DRAFT — publishing is always a separate, user-confirmed step:
+
+- **Creating a new tool** (`relevance_create_tool`): saves to a draft. The new tool has only a draft version; call `relevance_publish_tool` to make it live.
+- **Updating an existing tool** (`relevance_update_tool`): saves to a draft only — the live version is unchanged until you call `relevance_publish_tool`.
+
+`relevance_publish_tool` always shows an approval card to the user (even with auto-approve enabled), so confirm in chat before calling it:
 
 ```typescript
-relevance_publish_tool({ toolId: 'my-tool' });
+relevance_publish_tool({ tool_id: 'my-tool' });
+```
+
+Test the draft first using `relevance_run_tool` with `version: "draft"`:
+
+```typescript
+relevance_run_tool({
+  studio_id: 'my-tool',
+  params: { query: 'test query' },
+  version: 'draft',
+});
 ```
 
 ---
 
-## `transformations` is Replaced, Not Deep-Merged
+## Editing Transformation Steps
 
-The MCP auto-merge preserves top-level fields you omit (e.g., providing only `emoji` keeps your existing `transformations`). But if you DO provide `transformations`, the entire object — including the `steps` array — is replaced wholesale. To update a single step in a multi-step tool, you must get the tool first, modify the specific step, then upsert with ALL steps:
+To edit transformation steps, use the dedicated per-step tools (all save to DRAFT only):
 
-```typescript
-// WRONG — replaces ALL steps with just this one
-relevance_upsert_tool({
-  studio_id: 'x',
-  transformations: { steps: [modified_step_2_only] },
-});
+- `relevance_add_tool_step({ studio_id, step, position? })` — insert a new step. `position` is 0-based; omit (or pass a value `>= step_count`) to append.
+- `relevance_update_tool_step({ studio_id, step_index, patch })` — shallow-merge `patch` into the step at 0-based `step_index`.
+- `relevance_remove_tool_step({ studio_id, step_index })` — remove a single step (0-based).
+- `relevance_move_tool_step({ studio_id, from_index, to_index })` — reorder a step (both 0-based; mirrors UI drag).
 
-// CORRECT — preserves all other steps
-const { studio } = await relevance_get_tool({ studioId: 'x' });
-studio.transformations.steps[1].params.code = newCode;
-relevance_upsert_tool({
-  studio_id: 'x',
-  transformations: studio.transformations,
-});
-```
+Always call `relevance_get_tool` first to confirm step indices in the current draft. Out-of-range indices throw with the current step count in the error message, so the LLM can recover.
 
 ---
 
@@ -390,28 +409,7 @@ The `state_mapping` connects two things:
 
 ## Fixing Auto-Generated Tool Outputs
 
-Tools created by `relevance_create_tool_from_transformation` often return empty `{}` because output fields aren't mapped. To fix:
-
-1. **Check the transformation's `output_schema`** to find available fields
-2. **Add explicit output mappings** to the step
-3. **Fix the final output reference** to point to the correct step output
-
-```typescript
-// BROKEN (auto-generated):
-{ name: "my_step", transformation: "some_transformation", output: {} }
-
-// FIXED (explicit mapping — check output_schema for actual field names):
-{ name: "my_step", transformation: "some_transformation",
-  output: { results: "{{results}}", metadata: "{{metadata}}" } }
-```
-
-| Config           | Broken (auto-generated)         | Working (fixed)                         |
-| ---------------- | ------------------------------- | --------------------------------------- |
-| Step output      | `"output": {}`                  | `"output": {"field": "{{field}}", ...}` |
-| Final output ref | `"answer": "{{stepname.data}}"` | `"answer": "{{stepname.actual_field}}"` |
-| State mapping    | Missing step entries            | `"stepname": "steps.stepname.output"`   |
-
-**Tip:** When in doubt, find a working tool in the project that uses the same transformation and copy its output pattern.
+Tools created by `relevance_create_tool_from_transformation` often return empty `{}` because output fields aren't mapped. Call `relevance_get_transformation` for the underlying transformation and read its `output_schema` to find the available fields. Then call `relevance_update_tool` with the corrected step config: explicit `output` mappings on each step (`"output": { "field": "{{field}}" }`), the final output reference pointing at a real field on the step (`"answer": "{{stepname.actual_field}}"`), and matching `state_mapping` entries so the templates resolve. When in doubt, find a working tool that uses the same transformation and copy its output pattern.
 
 ## Discover Transformation Outputs via `output_schema`
 

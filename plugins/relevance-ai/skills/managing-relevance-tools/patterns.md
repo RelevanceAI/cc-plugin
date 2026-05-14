@@ -1,3 +1,8 @@
+---
+title: Common Tool Patterns
+description: Reusable tool design patterns — search + analyse, scrape + extract, multi-query loops, URL processing, enrichment, conditional branching, error handling. Load when designing multi-step tools or you need worked examples.
+---
+
 # Common Tool Patterns
 
 Reusable patterns for building Relevance AI tools.

@@ -1,3 +1,8 @@
+---
+title: Phone Agent Best Practices
+description: Build production phone agents using the three-phase pre-call / phone / post-call pattern, with voice config, latency guidance, and prompt structure. Load when designing a voice agent or optimising call latency.
+---
+
 # Phone Agent Best Practices
 
 Reference for building production-grade phone agents on Relevance AI.

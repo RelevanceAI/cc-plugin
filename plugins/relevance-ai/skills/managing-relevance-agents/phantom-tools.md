@@ -1,3 +1,8 @@
+---
+title: Phantom Tools
+description: Reference for the 15 system-injected tools (thinking, memory, escalation, Python executor, remote MCP, etc.) that are enabled via agent settings and must never be written into the `actions` array. Load when these tools appear in errors or when enabling agent capabilities.
+---
+
 # Phantom Tools
 
 Phantom tools are **system-injected tools generated at runtime** from agent settings. They are never stored in the agent's `actions` array — the Relevance AI backend creates them dynamically when the agent runs, based on configuration flags.
@@ -33,7 +38,7 @@ enable_python_executor: true         →   python_executor
 remote_mcp_configs: [...]            →   mcp_remote_tool_call
 ```
 
-When `relevance_get_agent_tools` returns tools, phantom tools are included with `is_phantom_tool: true`. But they should **never** be written back via `relevance_save_agent_draft`.
+When `relevance_get_agent_tools` returns tools, phantom tools are included with `is_phantom_tool: true`. But they should **never** be written back to the agent's `actions` array via `relevance_update_agent` or `relevance_attach_tools_to_agent`.
 
 ## Complete Reference: All 15 Phantom Tools
 
@@ -46,18 +51,7 @@ When `relevance_get_agent_tools` returns tools, phantom tools are included with 
 | **Purpose**       | Internal scratchpad — agent uses this to reason through complex decisions before acting |
 | **How to enable** | Set `thinking_tool: { enabled: true }` on the agent config                              |
 
-```typescript
-// Enable thinking tool
-const { agent } = await relevance_get_agent({ agentId });
-await relevance_save_agent_draft({
-  agentId,
-  agentConfig: {
-    ...agent,
-    thinking_tool: { enabled: true },
-  },
-});
-await relevance_publish_agent({ agentId });
-```
+Enable via `relevance_update_agent` with `patch: { thinking_tool: { enabled: true } }`, then publish.
 
 ### Agent Memory Tools
 
@@ -70,23 +64,7 @@ await relevance_publish_agent({ agentId });
 
 The `delete_agent_memory` tool is only injected when `memory.enable_delete_tool: true`.
 
-```typescript
-// Enable memory tools
-await relevance_save_agent_draft({
-  agentId,
-  agentConfig: {
-    ...agent,
-    memory: {
-      enabled: true,
-      memory_level: 'user', // "project" (shared) or "user" (per-user)
-      enable_delete_tool: true, // Also inject delete tool
-      add_memory_prompt: 'Save important facts and user preferences.',
-    },
-  },
-});
-```
-
-See [memory.md](memory.md) for full memory documentation.
+Enable via `relevance_update_agent` with `patch: { memory: { enabled: true, memory_level: "user" | "project", enable_delete_tool: true, add_memory_prompt: "..." } }`. See [memory.md](memory.md) for full memory documentation.
 
 ### Conversation Tagging Tool
 
@@ -97,16 +75,7 @@ See [memory.md](memory.md) for full memory documentation.
 | **Purpose**       | Tag conversations with predefined labels for organization/routing |
 | **How to enable** | Set `tags: ["support", "billing", "sales"]` on the agent config   |
 
-```typescript
-// Enable conversation tagging
-await relevance_save_agent_draft({
-  agentId,
-  agentConfig: {
-    ...agent,
-    tags: ['support', 'billing', 'technical', 'sales'],
-  },
-});
-```
+`tags` is blocked from MCP modification — set it via the Relevance AI dashboard. See the **Blocked Fields** section below for why.
 
 ### Conversation Metadata Tools
 
@@ -126,16 +95,7 @@ await relevance_save_agent_draft({
 | **Purpose**       | Allow the agent to schedule future actions (reminders, follow-ups) |
 | **How to enable** | Set `is_scheduled_triggers_enabled: true`                          |
 
-```typescript
-// Enable scheduled triggers
-await relevance_save_agent_draft({
-  agentId,
-  agentConfig: {
-    ...agent,
-    is_scheduled_triggers_enabled: true,
-  },
-});
-```
+Enable via `relevance_update_agent` with `patch: { is_scheduled_triggers_enabled: true }`.
 
 ### Escalate to Manager Tool
 
@@ -146,23 +106,7 @@ await relevance_save_agent_draft({
 | **Purpose**       | Escalate conversations to human managers via email or Slack notifications                        |
 | **How to enable** | Set `escalations: { email: { emails: [...] } }` or `escalations: { slack: { channels: [...] } }` |
 
-```typescript
-// Enable escalation
-await relevance_save_agent_draft({
-  agentId,
-  agentConfig: {
-    ...agent,
-    escalations: {
-      email: {
-        emails: ['manager@company.com'],
-      },
-      slack: {
-        channels: ['#escalations'],
-      },
-    },
-  },
-});
-```
+`escalations` is blocked from MCP modification — set it via the Relevance AI dashboard. See the **Blocked Fields** section below for why.
 
 ### Python Executor Tool
 
@@ -220,26 +164,15 @@ When processing agent tool data, use these methods (in order of reliability):
 
 ### Phantom Tools Are Auto-Stripped on Save
 
-The `relevance_save_agent_draft` tool automatically strips phantom tools before saving. When updating an agent, always use `agent.actions` from `relevance_get_agent` (already clean) — never use `tools.chains` from `relevance_get_agent_tools` (includes phantom tools).
+The MCP layer automatically strips phantom tools before saving (whether you go through `relevance_update_agent` or `relevance_attach_tools_to_agent`). When constructing an `actions` array yourself, always source it from `relevance_get_agent` (already clean) — never from `relevance_get_agent_tools` (includes phantom tools).
 
 ### Enable Features via Settings, Not Actions
 
-To give an agent capabilities like memory or thinking, configure the **setting** — don't manually add the tool to `actions`.
-
-```typescript
-// BAD — manually adding phantom tool to actions
-actions: [
-  ...agent.actions,
-  { chain_id: "thinking_tool", title: "Think" }  // Will corrupt agent
-]
-
-// GOOD — enable via setting
-{ ...agent, thinking_tool: { enabled: true } }
-```
+To give an agent capabilities like memory or thinking, set the feature flag with `relevance_update_agent` (e.g. `patch: { thinking_tool: { enabled: true } }`). The MCP injects the phantom tool automatically. Don't add phantom tools to the `actions` array — it corrupts the agent and `relevance_update_agent` will reject the array anyway because the array-replacement semantics would also wipe other attached tools.
 
 ### Cloned Agents May Be Pre-Tainted
 
-If an agent was published to the marketplace with phantom tools already leaked into its `actions` (from a previous bug), cloning it reproduces the tainted data. Re-saving the agent via `relevance_save_agent_draft` will automatically clean this up.
+If an agent was published to the marketplace with phantom tools already leaked into its `actions` (from a previous bug), cloning it reproduces the tainted data. Re-saving the agent via `relevance_update_agent` (passing any small change to trigger a save) will automatically clean this up.
 
 ### `params_schema` Is Valid — Don't Strip It
 
@@ -247,7 +180,7 @@ A common mistake when cleaning actions is deleting `params_schema`. This field I
 
 ### Blocked Fields in MCP Plugin
 
-The following agent config fields are **blocked from modification** via `relevance_patch_agent` and `relevance_upsert_agent` because they control phantom tool injection and can cause hard-to-reverse damage if set incorrectly:
+The following agent config fields are **blocked from modification** via `relevance_update_agent` and `relevance_create_agent` because they control phantom tool injection and can cause hard-to-reverse damage if set incorrectly:
 
 - `tags` — controls `tag_agent_conversation` phantom tool. **Not** a general-purpose metadata/labelling field.
 - `custom_metadata` — controls `add_conversation_metadata` / `read_conversation_metadata` phantom tools.

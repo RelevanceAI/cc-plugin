@@ -1,3 +1,8 @@
+---
+title: API Reference
+description: Lookups for transformation discovery, conversation job queries, OAuth provider lists, and raw API fallback via `relevance_api_request`. Load when the dedicated MCP tools don't cover your operation.
+---
+
 # API Reference
 
 Additional API details for operations not covered by dedicated MCP tools.

@@ -1,3 +1,8 @@
+---
+title: Agent Actions (Tools)
+description: Attach tools (actions) to agents, configure approval behaviour and ordering, and distinguish `action_id` from `studio_id`. Load when wiring tools to an agent or debugging why a tool doesn't appear at runtime.
+---
+
 # Agent Actions (Tools)
 
 How to attach and configure tools for agents.
@@ -43,50 +48,7 @@ Your project's API region may differ from where tools are stored.
 
 ### How to Find Tool Region (Recommended Pattern)
 
-```typescript
-// BEST: Find region from an existing working agent with tools
-const agents = await relevance_list_agents({ pageSize: 10 });
-const agentWithTools = agents.results.find((a) => a.actions?.length > 0);
-const correctRegion = agentWithTools.actions[0].region;
-
-// Use verified region when attaching tools
-const actions = toolIds.map((id) => ({
-  chain_id: id,
-  project: projectId,
-  region: correctRegion, // Use verified region
-  action_behaviour: 'never-ask',
-}));
-```
-
-Alternative methods:
-
-```typescript
-// Option 2: Get specific agent you know works
-const { agent } = await relevance_get_agent({ agentId: 'working-agent-id' });
-const region = agent.actions[0].region;
-
-// Option 3: Check tool metadata (less reliable)
-const tool = await relevance_get_tool({ studioId: 'tool-id' });
-// Look for tool.studio.metadata.source_marketplace_listing.entity_region
-```
-
-### Common Mistake
-
-```typescript
-// WRONG - using project/API region
-{
-  chain_id: "tool-id",
-  region: "bcbe5a",  // Your API region - MAY BE WRONG
-  project: "your-project-id"
-}
-
-// CORRECT - using tool's actual region
-{
-  chain_id: "tool-id",
-  region: "f1db6c",  // Region from working agent
-  project: "your-project-id"
-}
-```
+Run `relevance_list_agents` and look at the `region` field on any agent that already has the tool attached — that's the verified region. Pass that region into `relevance_attach_tools_to_agent` (or, for a single existing action, into `relevance_update_agent_action` with `patch: { region }`). As a fallback, `relevance_get_tool` returns the source region under `studio.metadata.source_marketplace_listing.entity_region`. Don't assume your project's API region is the same as the tool's region — they're commonly different.
 
 ### Symptoms of Wrong Region
 
@@ -99,7 +61,7 @@ const tool = await relevance_get_tool({ studioId: 'tool-id' });
 
 **Always verify tools are linked after publishing:**
 
-After publishing, call `relevance_get_agent_tools({ agentId })` to confirm tools are linked:
+After publishing, call `relevance_get_agent_tools({ agent_id })` to confirm tools are linked:
 
 - If `chains` is empty and `actionIdMap` is `{}` → region mismatch. Find the correct region from a working agent.
 - If `chains` has entries → tools are linked correctly. Use `actionIdMap` for system prompt references.
@@ -138,41 +100,23 @@ const action = {
 | `ask-first`  | Agent asks user before first use     | Sensitive operations |
 | `always-ask` | Requires explicit approval each time | Destructive actions  |
 
-## Adding Actions to an Agent
+## Adding and Configuring Actions
 
-```typescript
-// 1. Get current agent config
-const { agent } = await relevance_get_agent({ agentId: 'xxx' });
+Use `relevance_attach_tools_to_agent` to attach existing tools to an agent — it handles fetch/merge/save, sets `project`/`region` automatically, and saves to a draft.
 
-// 2. Add actions to config
-relevance_save_agent_draft({
-  agentId: 'xxx',
-  agentConfig: {
-    ...agent, // CRITICAL: preserve all existing fields
-    actions: [
-      {
-        chain_id: '653af72e-bee9-42ef-ad82-ca8c54715f85', // UUID from relevance_upsert_tool
-        project: config.project,
-        region: config.region,
-        title: 'Search Google',
-        description: 'Search the web for information',
-        action_behaviour: 'never-ask',
-      },
-      {
-        chain_id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', // UUID from relevance_upsert_tool
-        project: config.project,
-        region: config.region,
-        title: 'Scrape Webpage',
-        description: 'Extract content from a URL',
-        action_behaviour: 'never-ask',
-      },
-    ],
-  },
-});
-
-// 3. Publish
-relevance_publish_agent({ agentId: 'xxx' });
 ```
+relevance_attach_tools_to_agent({
+  agent_id: 'xxx',
+  tool_ids: ['653af72e-bee9-42ef-ad82-ca8c54715f85'],
+  action_behaviour: 'never-ask',
+});
+```
+
+To change per-tool config on an already-attached tool — `prompt_description`, `default_values`, `overrides`, `conditional_approval_rules`, `agent_decide_prompt`, `disabled`, `action_retry_config`, `execution_limit`, or per-action `action_behaviour` — call `relevance_update_agent_action` with the tool's `chain_id` and a `patch` object.
+
+To remove one or more attached tools, call `relevance_detach_tools_from_agent` with the agent_id and an array of `chain_id`s. It throws if any chain_id isn't currently attached, so you don't silently believe a no-op succeeded.
+
+All three save to a draft; call `relevance_publish_agent` after the user confirms.
 
 ## CRITICAL: Action IDs vs Studio IDs
 
@@ -198,7 +142,7 @@ system_prompt: `Use {{_actions.3261d8205a334a99}} to create contacts.`;
 Backend-generated action IDs are required for system prompt references.
 
 ```typescript
-const tools = await relevance_get_agent_tools({ agentId: '...' });
+const tools = await relevance_get_agent_tools({ agent_id: '...' });
 // Returns:
 // {
 //   chains: [
@@ -215,6 +159,13 @@ const tools = await relevance_get_agent_tools({ agentId: '...' });
 See [actions.md - Action IDs vs Studio IDs](#critical-action-ids-vs-studio-ids) for the full reference.
 
 Use these IDs in system prompts: `{{_actions.3261d8205a334a99}}`
+
+## Integration Warnings
+
+After attaching tools with `relevance_attach_tools_to_agent`, check the response for:
+
+- **`oauth_auto_config`** — OAuth params are automatically set to "Set manually" mode. If exactly one matching OAuth account is connected, it's pre-filled as the default. Each entry includes a `config_url` linking directly to the tool's config page on the agent. If an account was NOT auto-filled (`account_set: false`), direct the user to the `config_url` to select their account.
+- **`integration_warnings`** — If tools need OAuth accounts or API keys that aren't configured, this field lists missing providers with a `setup_url` for the integrations page and per-tool `config_url` links. Use `relevance_check_tool_integration_requirements` for a detailed per-tool breakdown (pass `agent_id` to get config URLs), or follow the `setup-integrations` prompt for the full workflow.
 
 ## OAuth-Enabled Tools
 
@@ -244,55 +195,13 @@ LAYER 2: Agent actions[].default_values → Maps agent variable to tool input at
 LAYER 3: Tool params_schema → Fallback if agent doesn't pass value
 ```
 
-**All three layers are needed.**
+**All three layers are needed.** Apply each one with the right MCP tool:
 
-```typescript
-// 1. Get OAuth account ID
-const accounts = await relevance_list_oauth_accounts();
-const oauthAccountId = accounts.results.find(
-  (a) => a.provider === 'linkedin'
-).account_id;
-
-// 2. Update tool with default (Layer 3)
-await relevance_upsert_tool({
-  studio_id: 'my-linkedin-tool',
-  params_schema: {
-    properties: {
-      linkedin_account_id: {
-        type: 'string',
-        title: 'LinkedIn Account ID',
-        default: oauthAccountId, // LAYER 3: Tool fallback default
-      },
-    },
-  },
-});
-
-// 3. Configure agent with variable and action mapping (Layers 1 & 2)
-const { agent } = await relevance_get_agent({ agentId: 'my-agent' });
-await relevance_save_agent_draft({
-  agentId: agent.agent_id,
-  agentConfig: {
-    ...agent,
-    params_schema: {
-      type: 'object',
-      properties: {
-        linkedin_account_id: {
-          type: 'string',
-          title: 'LinkedIn Account ID',
-          default: oauthAccountId, // LAYER 1: Agent variable default
-        },
-      },
-    },
-    actions: agent.actions.map((action) => ({
-      ...action,
-      default_values: needsOAuth(action.chain_id)
-        ? { linkedin_account_id: '{{linkedin_account_id}}' } // LAYER 2: Maps variable to tool
-        : action.default_values,
-    })),
-  },
-});
-await relevance_publish_agent({ agentId: agent.agent_id });
-```
+1. Find the OAuth account id with `relevance_list_oauth_accounts`.
+2. **Layer 3 (tool fallback):** call `relevance_update_tool` with the tool's `studio_id` and a `params_schema` patch that sets `default: "<oauth_account_id>"` on the OAuth param.
+3. **Layer 1 (agent-level variable):** call `relevance_update_agent` with `patch: { params_schema: { type: "object", properties: { <oauth_param>: { type: "string", default: "<oauth_account_id>" } } } }`.
+4. **Layer 2 (per-action mapping):** for each affected attached tool, call `relevance_update_agent_action` with the tool's `chain_id` and `patch: { default_values: { <oauth_param>: "{{<oauth_param>}}" } }`. Do this once per attached tool.
+5. After the user confirms, call `relevance_publish_agent`.
 
 ## Listing Available OAuth Accounts
 

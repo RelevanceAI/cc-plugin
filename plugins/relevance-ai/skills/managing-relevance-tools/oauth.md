@@ -1,6 +1,13 @@
+---
+title: OAuth Account Configuration
+description: Wire OAuth account selection into tools — `params_schema` setup, passing the account into transformation steps, provider reference, and agent-tool quirks. Load when building a tool that hits a user-authenticated API (HubSpot, Gmail, etc.).
+---
+
 # OAuth Account Configuration
 
 How to add OAuth account selection to tools for third-party integrations.
+
+> **Directing a user to connect an account?** Always use the per-provider `setup_url` from `tools_needing_oauth[].providers[].setup_url` or `missing_oauth[].setup_url` (same pattern as API keys). It deep-links to the integrations page with the correct provider drawer already open. Never hand-roll a generic integrations URL — the user shouldn't have to scroll a grid to find the provider they need. See [integration-setup.md](integration-setup.md) for the end-to-end detection → connect → verify workflow.
 
 ## Overview
 
@@ -89,8 +96,7 @@ Reference the OAuth parameter using `oauth_account_id`:
 ## Complete Example: Ahrefs Backlink Tool
 
 ```typescript
-relevance_upsert_tool({
-  studio_id: 'backlink-analyzer',
+relevance_create_tool({
   title: 'Backlink Analyzer',
   description: 'Analyze backlinks using Ahrefs',
   params_schema: {
@@ -184,42 +190,9 @@ relevance_api_request({
 
 ## CRITICAL: OAuth for Agent-Called Tools
 
-When a tool is called by an **agent** (not directly by a user), the OAuth account must be provided via a `default` value in the tool's `params_schema`.
+Agent actions can't carry `oauth_account_id` directly — the action config schema has no `params` field, and trying to add one fails with `"must NOT have additional properties"`. Common symptom: `"You need to add your chains_<provider>_api_key API key"`.
 
-### The Problem
-
-```typescript
-// WRONG - Agent actions don't support params field
-agent.actions.push({
-  chain_id: 'hubspot-search-contact',
-  params: { oauth_account_id: 'xxx' }, // ERROR: "must NOT have additional properties"
-});
-```
-
-**Symptom:** Error like "You need to add your chains_hubspot_api_key API key"
-
-### The Solution
-
-Add `default` value AND `is_fixed_param: true` in the **tool's** params_schema:
-
-```typescript
-params_schema: {
-  type: "object",
-  properties: {
-    oauth_account_id: {
-      type: "string",
-      title: "HubSpot Account",
-      default: "your-oauth-account-id",  // <-- CRITICAL!
-      metadata: {
-        is_fixed_param: true,  // Hides from UI
-        content_type: "oauth_account",
-        oauth_account_provider: "hubspot",
-        oauth_permissions: [{ provider: "hubspot", types: ["hubspot-connect-app"] }]
-      }
-    }
-  }
-}
-```
+**Fix:** put the OAuth account on the **tool**, not the action. Call `relevance_update_tool` with a `params_schema` patch that sets, on the OAuth param: `default: "<oauth_account_id>"` (provides the value when the tool is called without it) AND `metadata.is_fixed_param: true` (hides the field from the UI). Both are required — `is_fixed_param` alone does not provide a value. Keep the rest of the OAuth metadata (`content_type: "oauth_account"`, `oauth_account_provider`, `oauth_permissions`) intact.
 
 ### Key Insights
 

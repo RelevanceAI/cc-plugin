@@ -1,158 +1,86 @@
 ---
-description: Instructs agents to report bugs, skill gaps, and UX friction via the SubmitBugReport API. Use when encountering issues during agent conversations.
+description: How agents file bugs and improvement suggestions through MCP. Submit proactively whenever a tool errors, a capability is missing, or the user asks for something the platform doesn't support.
 ---
 
-# Bug Reporting
+# Reporting Bugs and Suggesting Improvements
 
-When a significant issue is encountered during a conversation, the agent should analyze what went wrong and submit a structured report via the bug report API.
+Use the `relevance_submit_feedback` MCP tool. One tool covers both bugs and forward-looking suggestions — the `category` field tells engineering which it is. Region/project/source are inferred from the session. **Submit proactively** — do NOT ask the user for permission first.
 
-## Reporting Limits
+## When to call
 
-- **Maximum 2 reports per conversation.** After 2 reports, stop reporting — batch remaining issues into a single summary if needed.
-- **Never report failures of the reporting endpoint itself.** If `POST /bugs/submit` fails, do not retry or report the failure — this prevents infinite recursion.
-- **Deduplicate within a conversation.** Before submitting, check whether you already reported an issue with the same `category` + `skill_or_tool` combination. If so, skip it.
+| Category          | When                                                                     |
+| ----------------- | ------------------------------------------------------------------------ |
+| `bug`             | A tool call failed, returned wrong data, or threw an error               |
+| `skill-gap`       | The agent lacked a tool/capability and the user gave up or worked around |
+| `ux-friction`     | The user had to repeat themselves or correct the agent                   |
+| `hallucination`   | The agent fabricated a tool name, parameter, or capability               |
+| `feature-request` | The user asked for something the platform doesn't support yet            |
+| `improvement`     | An existing capability could be better; you worked around a limitation   |
+| `docs`            | A skill doc was missing the answer you needed                            |
 
-## When to Report
+**Don't report:** successful conversations, user errors unrelated to the platform (typos in their data), or the same `category` + `title` twice in one conversation. Don't report failures of the feedback tool itself (prevents recursion).
 
-Report when ANY of the following occur during a conversation:
-
-- **Bug**: A tool call failed, returned unexpected data, or the agent hit an error
-- **Skill gap**: The agent lacked knowledge or a tool to fulfill the user's request
-- **UX friction**: The user had to repeat themselves, correct the agent, or abandon a task
-- **Feature request**: The user explicitly asked for something the platform doesn't support
-- **Hallucination**: The agent fabricated capabilities, tool names, or configuration options
-
-Do NOT report:
-
-- Successful conversations with no issues
-- User errors unrelated to the platform (e.g. typos in their own data)
-- Issues already reported in the same conversation
-- Failures of the `POST /bugs/submit` endpoint itself
-
-## How to Report
-
-Use the `relevance_api_request` MCP tool to call the `POST /bugs/submit` endpoint.
+## Calling the tool
 
 ```typescript
-relevance_api_request({
-  method: 'POST',
-  endpoint: '/bugs/submit',
-  body: {
-    source: 'mcp-auto',
-    region: '<current region>',
-    project: '<current project ID>',
-    message: 'Detailed description of the issue',
-    category: 'bug | skill-gap | ux-friction | feature-request | hallucination',
-    context: {
-      severity: 'low | medium | high | critical',
-      title: 'Short summary (under 100 chars)',
-      suggested_fix: 'Concrete suggestion for how to fix',
-      agent_id: 'agent ID if available',
-      conversation_id: 'conversation/task ID if available',
-      skill_or_tool: 'MCP tool or skill involved',
-    },
-  },
+relevance_submit_feedback({
+  category: 'bug', // see table above
+  severity: 'high', // critical | high | medium | low
+  title:
+    'relevance_update_agent dropped all attached tools on a partial update',
+  message:
+    'User asked to change only the system_prompt of agent 5f8e0e41. ' +
+    'Called relevance_update_agent with just { agent_id, system_prompt }. ' +
+    'The attached tools were wiped (actions dropped from 2 to 0) even though I only sent system_prompt — the partial-merge did not preserve actions.',
+  agent_id: '5f8e0e41-98bf-4068-90ed-2a722fb68466',
+  skill_or_tool: 'relevance_update_agent',
 });
 ```
 
-> **Note:** `region` and `project` are required by the API. Use the region and project ID from the current MCP session context (e.g. `relevance_get_project_info`).
+### Field reference
 
-### Field Reference
+| Field             | Required | Notes                                                                |
+| ----------------- | -------- | -------------------------------------------------------------------- |
+| `category`        | Yes      | One of the seven categories above                                    |
+| `severity`        | Yes      | `critical` blocks, `high`/`medium` is friction, `low` is minor       |
+| `title`           | Yes      | Short ticket-style title (5–120 chars)                               |
+| `message`         | Yes      | What happened, in plain prose. ≥20 chars. Don't prescribe a fix.     |
+| `agent_id`        | No       | Agent ID if issue is agent-specific                                  |
+| `conversation_id` | No       | Conversation/task ID if already in your context — never ask the user |
+| `skill_or_tool`   | No       | The MCP tool or skill involved                                       |
 
-| Field                     | Required | Notes                                                                                                  |
-| ------------------------- | -------- | ------------------------------------------------------------------------------------------------------ |
-| `source`                  | Yes      | Always `"mcp-auto"` for agent-generated reports                                                        |
-| `region`                  | Yes      | Current region code (e.g. `"bcbe5a"`)                                                                  |
-| `project`                 | Yes      | Current project ID                                                                                     |
-| `message`                 | Yes      | Detailed description: what the user wanted, what happened, what should have happened                   |
-| `category`                | Yes      | One of: `bug`, `skill-gap`, `ux-friction`, `feature-request`, `hallucination`                          |
-| `context.severity`        | Yes      | `critical` = blocks core workflow, `high` = significant friction, `medium` = noticeable, `low` = minor |
-| `context.title`           | Yes      | Short, actionable — like a ticket title                                                                |
-| `context.suggested_fix`   | Yes      | Be specific — name the tool, skill, or code change needed                                              |
-| `context.agent_id`        | No       | Include when the issue is agent-specific                                                               |
-| `context.conversation_id` | No       | The task_id or conversation_id                                                                         |
-| `context.skill_or_tool`   | No       | The specific MCP tool or skill that was involved                                                       |
+## Writing a good `message`
 
-### Sanitization Rules
+Keep it short. A few sentences is usually enough. Cover, in plain prose:
 
-Reports are stored persistently. **MUST NOT include:**
+- What the user wanted
+- What you tried (the specific tool / parameters)
+- What went wrong, or what's missing
 
-- API keys, tokens, passwords, or OAuth secrets
-- Auth headers, session cookies, or bearer tokens
-- Raw PII (emails, phone numbers, addresses) — use `[REDACTED]` placeholders
-- Full stack traces — include only the error class/code and message
-- Raw request/response bodies — summarize the shape and relevant fields only
+**Do not** prescribe how engineering should fix it — that's their call. Describing the _symptom_ well is more useful than guessing the _fix_.
+
+If a workaround exists, mention it in one line.
+
+## Sanitization
+
+Reports are stored persistently. **Never include:**
+
+- API keys, tokens, passwords, OAuth secrets, Authorization headers
+- Raw PII (emails, phone numbers, addresses) — use `[REDACTED]`
+- Full stack traces — error class + message is enough
+- Raw request/response bodies — summarize the shape
+
+The tool will reject the call with a sanitization error if obvious secret patterns are detected.
 
 ```typescript
 // WRONG — leaks secrets
 message: 'Tool failed with header Authorization: Bearer sk-abc123...';
 
 // CORRECT — redacted
-message: 'Tool failed with 401 Unauthorized when calling Jira API. Auth header was present but rejected.';
+message: 'Tool failed with 401 Unauthorized when calling Jira API.';
 ```
 
-### Writing a Good `message`
-
-The `message` field is the most important part of the report. Structure it clearly so the engineering team can understand and reproduce the issue without follow-up questions.
-
-**Use this format:**
-
-```
-## Summary
-One-sentence description of what went wrong.
-
-## Steps to Reproduce
-1. What the user asked for
-2. What tool/action was attempted
-3. What parameters were used (redact secrets)
-
-## Expected Behavior
-What should have happened.
-
-## Actual Behavior
-What actually happened — include error messages (sanitized), HTTP status codes, or unexpected return values.
-
-## Impact
-What was the consequence — data loss, blocked workflow, user had to work around manually, etc.
-
-## Recommendations
-Concrete suggestions: name the specific tool, endpoint, or code change needed.
-```
-
-**Tips for actionable reports:**
-
-- Lead with the user's intent, not just the error
-- Include the exact MCP tool name and parameters that triggered the issue
-- Note whether a workaround exists and what it is
-- If data was lost or corrupted, describe what changed (before vs after)
-- Be specific in recommendations — "add a list_templates tool" is better than "fix this"
-
-### Example
-
-```typescript
-relevance_api_request({
-  method: 'POST',
-  endpoint: '/bugs/submit',
-  body: {
-    source: 'mcp-auto',
-    region: 'bcbe5a',
-    project: 'a3cd1b1efb8c-4da4-8728-81a8bc7333ca',
-    message:
-      '## Summary\nrelevance_api_request with POST /agents/upsert wiped entire agent config when attempting a partial update.\n\n## Steps to Reproduce\n1. User asked to update only the system_prompt of agent 5f8e0e41\n2. Called relevance_api_request with POST /agents/upsert, body: { agent_id, partial_update: true, system_prompt: "test" }\n3. partial_update: true was silently ignored\n\n## Expected Behavior\nOnly system_prompt should change; other fields (actions, model, knowledge) should be preserved.\n\n## Actual Behavior\nEntire agent config replaced — actions dropped from 2 to 0, system_prompt went from 42K chars to 4 chars, model reset to default.\n\n## Impact\nProduction agent actively processing SDR call transcripts was wiped. Recovered via version rollback.\n\n## Recommendations\n1. Block /agents/upsert from relevance_api_request — use relevance_patch_agent instead\n2. Make partial_update actually work, or reject it with a validation error',
-    category: 'bug',
-    context: {
-      severity: 'critical',
-      title: 'POST /agents/upsert via raw API silently wipes agent config',
-      suggested_fix:
-        'Block /agents/upsert from relevance_api_request allowlist. Dedicated tools (relevance_patch_agent) already handle safe updates with fetch-merge-save pattern.',
-      agent_id: '5f8e0e41-98bf-4068-90ed-2a722fb68466',
-      skill_or_tool: 'relevance_api_request',
-    },
-  },
-});
-```
-
-## Severity Guide
+## Severity guide
 
 | Severity   | Criteria                                                       | Example                                                   |
 | ---------- | -------------------------------------------------------------- | --------------------------------------------------------- |
@@ -161,12 +89,6 @@ relevance_api_request({
 | `medium`   | Noticeable issue but workaround exists                         | Search returns wrong results but user can filter manually |
 | `low`      | Minor inconvenience or cosmetic issue                          | Tool description is confusing but functionality works     |
 
-## Triage Process
+## Triage
 
-Reports submitted via `POST /bugs/submit` are stored server-side and triaged by the engineering team:
-
-1. Filter reports where `source = 'mcp-auto'`
-2. Assess severity and category
-3. Convert actionable reports into Linear tickets
-4. Group related reports to identify patterns
-5. Prioritize based on frequency and severity
+Reports are stored server-side and triaged by engineering — filter on `source = 'mcp-auto'`, group by `category` and frequency, convert actionable ones into Linear tickets. Per-project rate limiting on the feedback tool keeps the volume sane.

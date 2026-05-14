@@ -1,3 +1,8 @@
+---
+title: Running and Testing Agents
+description: Trigger agents, poll for results, inspect conversations and tool calls. Load when running or testing an agent, or debugging tool-execution failures inside a conversation.
+---
+
 # Running and Testing Agents
 
 How to trigger agents, manage conversations, and view results.
@@ -8,45 +13,68 @@ How to trigger agents, manage conversations, and view results.
 
 Use `relevance_trigger_agent` to send a message. Returns immediately with a `conversation_id`:
 
+> **Note:** `conversation_id` (returned by trigger/poll tools) and `task_id` (used by view/metadata tools) are the same value. Use the `conversation_id` from a trigger result as the `task_id` when calling `relevance_get_agent_task_summary`, `relevance_list_agent_task_messages`, or `relevance_get_agent_task_metadata`.
+
 ```typescript
 const result = await relevance_trigger_agent({
-  agentId: '...',
+  agent_id: '...',
   message: 'Research the latest AI developments',
 });
-// Returns { conversation_id } immediately
+// Returns { conversation_id } immediately — this is the task_id for other agent task tools
 // Use relevance_poll_agent_result to check status and get the response
 ```
 
-### Synchronous (Wait for Completion)
+### Polling Pacing
 
-Use `relevance_trigger_agent_sync` to trigger and wait for completion (up to 120s):
+When polling for results with `relevance_poll_agent_result`, **always pass `wait_seconds`** (default 50s, max 300s). The platform-API holds the connection open until the agent reaches a terminal status (`completed`, `failed`, `pending_approval`) or the wait window elapses, so one call covers many internal polls.
 
 ```typescript
-const result = await relevance_trigger_agent_sync({
-  agentId: '...',
+relevance_poll_agent_result({
+  agent_id: '...',
+  conversation_id: '...',
+  wait_seconds: 50,
+});
+```
+
+If a poll returns a non-terminal `status: "in_progress"`, **re-poll** — do NOT call `relevance_trigger_agent` again. Re-triggering starts a new conversation; the existing one is still running.
+
+A `polling_hint` field on the response only appears for `pending_approval` and includes the conversation URL the human approver must visit.
+
+### Wait for Completion
+
+There is no synchronous trigger. To wait for the agent's response, call `relevance_poll_agent_result` with `wait_seconds` after triggering — the platform-API holds the connection open until a terminal status (`completed`, `failed`, `pending_approval`) or the wait window elapses.
+
+```typescript
+const { conversation_id } = await relevance_trigger_agent({
+  agent_id: '...',
   message: 'Research the latest AI developments',
 });
-// Returns { status, response, toolCalls } when done
+const task = await relevance_poll_agent_result({
+  agent_id: '...',
+  conversation_id,
+  wait_seconds: 50,
+});
+// Re-poll while task.status === "in_progress"
 ```
 
 ### Continue Existing Conversation
 
 ```typescript
 relevance_trigger_agent({
-  agentId: '...',
-  conversationId: 'previous-conversation-id',
+  agent_id: '...',
+  conversation_id: 'previous-conversation-id',
   message: 'Tell me more about transformers',
 });
 ```
 
-## Viewing Conversations
+## Viewing Agent Tasks
 
-### Get Conversation Details
+### Get Task Summary
 
 ```typescript
-relevance_get_task_view({
-  agentId: '...',
-  taskId: 'conversation-id',
+relevance_get_agent_task_summary({
+  agent_id: '...',
+  task_id: 'conversation-id', // Use the conversation_id as task_id
 });
 ```
 
@@ -60,16 +88,6 @@ Returns summarized view with:
 
 ### Full Mode
 
-For complete raw API response:
-
-```typescript
-relevance_get_task_view({
-  agentId: '...',
-  taskId: 'conversation-id',
-  fullMode: true,
-});
-```
-
 ## Testing Workflow
 
 ### 0. Validate Tools First
@@ -78,7 +96,7 @@ Before testing the agent, validate each attached tool individually to catch brok
 
 ```typescript
 const result = await relevance_run_tool({
-  studioId: 'tool-id',
+  studio_id: 'tool-id',
   params: { query: 'test input' },
 });
 // ✅ Returns meaningful data → tool works
@@ -92,7 +110,7 @@ This prevents wasting agent credits on tools that silently return empty results.
 ```typescript
 // Simple message to verify agent responds
 relevance_trigger_agent({
-  agentId: '...',
+  agent_id: '...',
   message: 'Hello, what can you help me with?',
 });
 ```
@@ -102,7 +120,7 @@ relevance_trigger_agent({
 ```typescript
 // Message that requires tool use
 relevance_trigger_agent({
-  agentId: 'research-assistant',
+  agent_id: 'research-assistant',
   message: 'Search for recent news about OpenAI',
 });
 ```
@@ -112,14 +130,14 @@ relevance_trigger_agent({
 ```typescript
 // Start conversation
 const result1 = await relevance_trigger_agent({
-  agentId: '...',
+  agent_id: '...',
   message: "Research Tesla's latest quarterly earnings",
 });
 
 // Continue with follow-up
 relevance_trigger_agent({
-  agentId: '...',
-  conversationId: result1.conversation_id,
+  agent_id: '...',
+  conversation_id: result1.conversation_id,
   message: 'How does this compare to last quarter?',
 });
 ```
@@ -129,9 +147,9 @@ relevance_trigger_agent({
 ### Check Conversation for Errors
 
 ```typescript
-const task = await relevance_get_task_view({
-  agentId: '...',
-  taskId: 'conversation-id',
+const task = await relevance_get_agent_task_summary({
+  agent_id: '...',
+  task_id: 'conversation-id', // conversation_id is the task_id
 });
 
 // Look for:
@@ -142,14 +160,14 @@ const task = await relevance_get_task_view({
 
 ### Common Issues
 
-| Symptom                   | Likely Cause                     | Fix                                                         |
-| ------------------------- | -------------------------------- | ----------------------------------------------------------- |
-| Agent doesn't use tools   | System prompt unclear            | Make tool instructions explicit                             |
-| Tool execution fails      | Missing project/region           | Add to action config                                        |
-| Wrong tool called         | Tool descriptions unclear        | Update action descriptions                                  |
-| Slow response             | Too many tools                   | Remove unused tools                                         |
-| `pending_approval` status | `action_behaviour: "always-ask"` | Approve in UI, or change to `"never-ask"` for automated use |
-| `timed_out` status        | Agent takes >120s                | Use `relevance_get_task_view` to poll — do NOT re-trigger   |
+| Symptom                       | Likely Cause                     | Fix                                                            |
+| ----------------------------- | -------------------------------- | -------------------------------------------------------------- |
+| Agent doesn't use tools       | System prompt unclear            | Make tool instructions explicit                                |
+| Tool execution fails          | Missing project/region           | Add to action config                                           |
+| Wrong tool called             | Tool descriptions unclear        | Update action descriptions                                     |
+| Slow response                 | Too many tools                   | Remove unused tools                                            |
+| `pending_approval` status     | `action_behaviour: "always-ask"` | Approve in UI, or change to `"never-ask"` for automated use    |
+| `in_progress` after long wait | Agent still running              | Re-poll with `relevance_poll_agent_result` — do NOT re-trigger |
 
 ## URL Patterns
 
@@ -170,9 +188,33 @@ https://app.relevanceai.com/agents/{region}/{project}/{agentId}/edit/instruction
 
 ## API Direct Access
 
-### List Conversations
+### List Tasks (Conversations)
 
-Use `relevance_list_conversations` to list agent conversations.
+Use `relevance_list_agent_tasks` to list agent tasks (conversations).
+
+### List Task Messages
+
+Use `relevance_list_agent_task_messages` to get raw messages from an agent task:
+
+```typescript
+const messages = await relevance_list_agent_task_messages({
+  agent_id: '...',
+  task_id: 'task-id',
+});
+// Returns raw message list from the task
+```
+
+### Get Task Metadata
+
+Use `relevance_get_agent_task_metadata` to get task metadata (status, credits used, runtime):
+
+```typescript
+const metadata = await relevance_get_agent_task_metadata({
+  agent_id: '...',
+  task_id: 'task-id',
+});
+// Returns status, credits consumed, runtime duration, etc.
+```
 
 ### List Jobs in Conversation
 
@@ -184,44 +226,15 @@ relevance_api_request({
 });
 ```
 
-## Task View Pagination
-
-`relevance_get_task_view` supports cursor-based pagination for handling large conversations:
-
-```typescript
-// First request
-const page1 = await relevance_get_task_view({
-  agentId: 'my-agent',
-  taskId: 'conversation-id',
-  pageSize: 100,
-});
-// Response includes next_cursor if more messages exist
-
-// Get older messages using cursor
-if (page1.next_cursor) {
-  const page2 = await relevance_get_task_view({
-    agentId: 'my-agent',
-    taskId: 'conversation-id',
-    pageSize: 100,
-    cursor: { before: page1.next_cursor }, // Get messages BEFORE this timestamp
-  });
-}
-```
-
-**Cursor options:**
-
-- `cursor.before` - Get messages before this ISO timestamp (for going back in time)
-- `cursor.after` - Get messages after this ISO timestamp (for new messages)
-
 ## Dry Run / Safe Testing Pattern
 
-For agents with potentially destructive tools (e.g. sending emails, deleting data), set `action_behaviour: "always-ask"` on those tools using `relevance_patch_agent` during testing.
+For agents with potentially destructive tools (e.g. sending emails, deleting data), set `action_behaviour: "always-ask"` on those tools using `relevance_update_agent` during testing.
 
 When triggered, the agent will pause at `pending_approval` status before executing the tool. You can:
 
 1. Review the tool call parameters in the Relevance AI app (use `relevance_get_project_info` for the URL)
 2. Approve or reject the call
-3. Use `relevance_get_task_view` to see the result after approval
+3. Use `relevance_get_agent_task_summary` to see the result after approval
 
 Once verified, switch back to `"never-ask"` for production use.
 
@@ -232,5 +245,5 @@ Once verified, switch back to `"never-ask"` for production use.
 3. **Verify tool outputs** - Ensure tools return expected data
 4. **Test with diverse inputs** - Don't rely on a single test; use varied inputs to reveal edge cases
 5. **Monitor for timeouts** - Long tool operations may timeout
-6. **Never re-trigger on timeout or pending_approval** - Use `relevance_get_task_view` to poll instead
-7. **Report issues** - If a tool call fails unexpectedly or the agent behaves incorrectly, submit a report via `POST /bugs/submit` (see [report-bugs.md](report-bugs.md))
+6. **Never re-trigger on timeout or pending_approval** - Use `relevance_get_agent_task_summary` to poll instead
+7. **Report issues proactively** — if a tool call fails unexpectedly, the agent misbehaves, or you spot a "we should add X" gap, call `relevance_submit_feedback` immediately with the matching `category`. See [report-bugs.md](report-bugs.md) for the call shape.

@@ -1,3 +1,8 @@
+---
+title: Running and Testing Tools
+description: Run and debug tools — sync/async invocation, polling pacing, per-step testing, output inspection, common errors like timeouts and `variable_not_found`. Load when a tool fails or you need to test it end-to-end.
+---
+
 # Running and Testing Tools
 
 How to execute tools, handle async operations, and debug issues.
@@ -8,7 +13,7 @@ For tools that complete quickly:
 
 ```typescript
 relevance_run_tool({
-  studioId: 'my-tool',
+  studio_id: 'my-tool',
   params: { query: 'test input' },
 });
 ```
@@ -22,25 +27,32 @@ For long-running tools:
 ```typescript
 // 1. Start async execution
 const { job_id } = await relevance_trigger_tool_async({
-  studioId: 'my-tool',
+  studio_id: 'my-tool',
   params: { query: 'test input' },
 });
 
-// 2. Poll for results
+// 2. Poll for results — always pass wait_seconds
 relevance_poll_tool_result({
-  studioId: 'my-tool',
-  jobId: job_id,
+  studio_id: 'my-tool',
+  job_id: job_id,
+  wait_seconds: 50,
 });
 ```
 
-### Poll Response States
+### Polling Pacing
 
-| Status      | Meaning               |
-| ----------- | --------------------- |
-| `pending`   | Job queued            |
-| `running`   | Currently executing   |
-| `completed` | Finished successfully |
-| `failed`    | Execution failed      |
+Always pass `wait_seconds` (default 50s, max 300s). The platform-API holds the connection open until the tool reaches a terminal `type` (`complete` or `failed`) or the wait window elapses, so one call covers many internal polls.
+
+If a poll returns a non-terminal `type` (`inprogress` or `timeout`), **re-poll** — do NOT call `relevance_trigger_tool_async` again. Re-triggering starts a fresh job; the existing one is still running.
+
+### Poll Response Types
+
+| Type         | Meaning                            |
+| ------------ | ---------------------------------- |
+| `complete`   | Finished successfully (terminal)   |
+| `failed`     | Execution failed (terminal)        |
+| `inprogress` | Currently executing — re-poll      |
+| `timeout`    | Server-side wait elapsed — re-poll |
 
 ## Getting Latest Run
 
@@ -48,7 +60,7 @@ Useful for getting example task IDs:
 
 ```typescript
 relevance_get_latest_tool_run({
-  studioId: 'my-tool',
+  studio_id: 'my-tool',
 });
 ```
 
@@ -58,7 +70,7 @@ relevance_get_latest_tool_run({
 
 ```typescript
 relevance_run_tool({
-  studioId: 'my-tool',
+  studio_id: 'my-tool',
   params: { query: 'simple test' },
 });
 ```

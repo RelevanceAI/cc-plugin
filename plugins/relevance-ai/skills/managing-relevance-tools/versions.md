@@ -1,3 +1,8 @@
+---
+title: Version Management
+description: Recover tools from accidental edits using version snapshots, and apply targeted per-step edits without overwriting the rest. Load when a tool's config is wiped or you need to safely edit one step in isolation.
+---
+
 # Version Management
 
 How to recover tools from accidental changes using version history.
@@ -21,7 +26,7 @@ Every time you publish a tool, a version snapshot is saved. If you accidentally 
 
 ```
 relevance_list_tool_versions({
-  toolId: "my-tool-id"
+  tool_id: "my-tool-id"
 })
 ```
 
@@ -35,7 +40,7 @@ To inspect a specific version in detail:
 
 ```
 relevance_get_tool_version({
-  versionId: "version-uuid"
+  version_id: "version-uuid"
 })
 ```
 
@@ -43,7 +48,7 @@ relevance_get_tool_version({
 
 ```
 relevance_restore_tool_version({
-  versionId: "working-version-uuid"
+  version_id: "working-version-uuid"
 })
 ```
 
@@ -53,28 +58,20 @@ This creates a new draft from the specified version.
 
 ```
 relevance_publish_tool({
-  toolId: "my-tool-id"
+  tool_id: "my-tool-id"
 })
 ```
 
-## Preventing Accidental Wipes
+## Editing Steps Without Wiping the Rest
 
-### The MCP Auto-Merge
+For step edits, use the dedicated per-step tools, all of which save to DRAFT only:
 
-`relevance_upsert_tool` auto-merges with the existing tool config — top-level fields you omit are preserved.
+- `relevance_add_tool_step` — insert at a 0-based `position` (default = append; pass `position >= step_count` to append explicitly).
+- `relevance_update_tool_step` — shallow-merge a patch into one step by 0-based `step_index`.
+- `relevance_remove_tool_step` — remove one step by 0-based `step_index`.
+- `relevance_move_tool_step` — reorder by `from_index` → `to_index` (both 0-based; mirrors UI drag).
 
-**However**, `transformations` is replaced as a whole object. If you provide it, ALL steps must be included. To update one step in a 7-step tool, get the tool first with `relevance_get_tool`, modify that step in `transformations.steps`, then upsert with the complete `transformations`.
-
-### Always Get Before Partial Updates
-
-```
-# WRONG — wipes transformations!
-relevance_upsert_tool({ studio_id: "my-tool", emoji: "new-emoji" })
-
-# CORRECT — get first, then upsert with all fields
-# 1. relevance_get_tool({ studioId: "my-tool" })
-# 2. relevance_upsert_tool({ ...full_config, emoji: "new-emoji" })
-```
+Always call `relevance_get_tool` first to confirm current step indices. The same principle holds for the agent side: never pass `actions` to `relevance_update_agent` — use `relevance_attach_tools_to_agent` / `relevance_update_agent_action` / `relevance_detach_tools_from_agent`.
 
 ## Version Retention
 

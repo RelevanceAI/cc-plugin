@@ -1,3 +1,8 @@
+---
+title: Transformations Reference
+description: Implementation reference for transformations — input/output patterns, parameter schemas, gotchas per type, and worked examples for `prompt_completion`, `browserless_scrape`, `api_call`, code steps, and more. Load when the catalog entry isn't enough.
+---
+
 # Transformations Reference
 
 Complete reference for transformation types and their outputs.

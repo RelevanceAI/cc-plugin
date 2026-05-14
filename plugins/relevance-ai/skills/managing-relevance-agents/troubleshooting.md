@@ -1,3 +1,8 @@
+---
+title: Troubleshooting Agents
+description: Diagnose common agent failures — draft vs live confusion, region mismatches, `action_behaviour` blocking, autonomy limits, trigger failures. Load when an agent is misbehaving or a tool/trigger isn't running as expected.
+---
+
 # Troubleshooting Agents
 
 Common issues and fixes for Relevance AI agents.
@@ -24,29 +29,17 @@ Step N: API call        Step 0: Agent/Trigger
 
 ## Critical Issues
 
-### `relevance_save_agent_draft` Warns About Empty Actions
+### Edits Don't Show Up in Production — Draft Wasn't Published
 
-**Symptom:** Saving an agent returns a warning about `actions` being empty.
+**Symptom:** You called `relevance_update_agent` or `relevance_attach_tools_to_agent`, the call succeeded, but production behaviour hasn't changed.
 
-**Cause:** The `relevance_save_agent_draft` API uses PUT semantics — omitted fields get wiped. The warning helps catch accidental omissions (e.g. forgetting to include existing tools).
+**Cause:** Those tools save to a DRAFT only. The active version is still the previously-published one (or undefined if `relevance_create_agent` hasn't been published yet).
 
-**When it's safe to ignore:** If the agent intentionally has no tools, the warning is a false positive. The save still proceeds — it's a warning, not a block.
+**Fix:** Confirm with the user, then call `relevance_publish_agent({ agent_id })`. The publish tool always shows an approval card (even with auto-approve enabled) — that's intentional.
 
-**When to act:** If the agent should have tools, fetch the full config first:
+**Inspecting state:** Call `relevance_get_agent` and check `has_unpublished_draft`, `active_version_id`, and `draft_version_id` on the response.
 
-```typescript
-// Fetch full config, merge your changes, save complete object
-const { agent } = await relevance_get_agent({
-  agent_id: '...',
-  summary: false,
-});
-await relevance_save_agent_draft({
-  agent_id: '...',
-  config: { ...agent, system_prompt: 'updated prompt' },
-});
-```
-
-**Tip:** For targeted edits (system prompt, model, etc.), use `relevance_patch_agent` instead — it handles fetch/merge/save internally and avoids this issue entirely.
+**Testing the draft without publishing:** Call `relevance_trigger_agent` — it defaults to the draft when one exists. The response's `triggered_version` field tells you which version actually ran. Pass `version: "draft"` to be explicit.
 
 ### Agent Max Output Tokens — 422 Error
 
@@ -54,40 +47,7 @@ await relevance_save_agent_draft({
 
 **Cause:** `max_output_tokens` is NOT a top-level agent field — it lives inside `model_options`.
 
-**Fix:**
-
-```typescript
-// WRONG — 422 error
-{ ...agent, max_output_tokens: 16000 }
-
-// CORRECT — nested inside model_options
-{ ...agent, model_options: { max_output_tokens: 16000 } }
-```
-
-See [creating.md](creating.md) for the full `model_options` reference.
-
-### Agent Config Wiped After Update
-
-**Symptom:** Agent lost system prompt, tools, or other config after saving.
-
-**Cause:** `relevance_save_agent_draft` does NOT support partial updates.
-
-**Fix:**
-
-```typescript
-// WRONG - wipes everything not included
-relevance_save_agent_draft({
-  agentId: 'xxx',
-  agentConfig: { emoji: 'new' },
-});
-
-// CORRECT - get first, merge, save all
-const { agent } = await relevance_get_agent({ agentId: 'xxx' });
-relevance_save_agent_draft({
-  agentId: 'xxx',
-  agentConfig: { ...agent, emoji: 'new' },
-});
-```
+**Fix:** Call `relevance_update_agent` with `patch: { model_options: { max_output_tokens: 16000 } }`. See [creating.md](creating.md) for the full `model_options` reference.
 
 ### Agent Says "I'll Run the Tool" But Nothing Happens
 
@@ -95,19 +55,7 @@ relevance_save_agent_draft({
 
 **Cause:** `action_behaviour` is set to `"always-ask"`, which requires user approval before each tool call.
 
-**Fix:**
-
-```typescript
-{
-  action_behaviour: "never-ask",  // At agent level
-  actions: [
-    {
-      chain_id: "my-tool",
-      action_behaviour: "never-ask"  // Per-tool level
-    }
-  ]
-}
-```
+**Fix:** Call `relevance_update_agent_action` with the tool's `chain_id` and `patch: { action_behaviour: "never-ask" }`. The agent-level `action_behaviour` set via `relevance_update_agent` is a fallback default — most cases need the per-tool override.
 
 ### Agent Runs Tool Then Silently Stops
 
@@ -115,38 +63,15 @@ relevance_save_agent_draft({
 
 **Cause:** `autonomy_limit_behaviour: "terminate-conversation"` causes the agent to silently end instead of responding after reaching its limit.
 
-**Fix:**
-
-```typescript
-{
-  autonomy_limit: 25,
-  autonomy_limit_behaviour: "ask-for-approval"  // NOT "terminate-conversation"
-}
-```
-
-With `"ask-for-approval"`, the agent will pause and ask to continue rather than silently stopping.
+**Fix:** Call `relevance_update_agent` with `patch: { autonomy_limit: 25, autonomy_limit_behaviour: "ask-for-approval" }`. The agent will then pause and ask to continue rather than silently stopping.
 
 ### Tools Not Executing
 
 **Symptom:** Agent acknowledges tools but doesn't use them, or tool calls fail.
 
-**Cause 1:** Missing `project` and `region` in action config.
+**Cause 1:** Missing `project` and `region` in action config. `relevance_attach_tools_to_agent` sets these automatically — if they're missing, the action was likely added by hand and is broken. Re-attach with `relevance_attach_tools_to_agent`, or call `relevance_update_agent_action` with `patch: { project, region }`.
 
-**Fix:**
-
-```typescript
-{
-  chain_id: "my-tool",
-  project: config.project,    // REQUIRED
-  region: config.region,      // REQUIRED
-  title: "My Tool",
-  action_behaviour: "never-ask"
-}
-```
-
-**Cause 2:** Tool is disabled.
-
-**Fix:** Check `disabled: false` in action config.
+**Cause 2:** Tool is disabled. Call `relevance_update_agent_action` with `patch: { disabled: false }`.
 
 **Cause 3:** `action_behaviour: "always-ask"` blocking execution (see above).
 
@@ -156,13 +81,7 @@ With `"ask-for-approval"`, the agent will pause and ask to continue rather than 
 
 **Cause:** Using wrong action ID.
 
-**Fix:** Use backend-generated IDs, not your custom IDs:
-
-```typescript
-// Get the real action IDs
-const tools = await relevance_get_agent_tools({ agentId: '...' });
-// Use actionIdMap values in system prompt
-```
+**Fix:** Use backend-generated IDs, not your custom IDs. Call `relevance_get_agent_tools` and read the `actionIdMap` values into your system prompt.
 
 ### Agent Cloning Fails with "additional properties" Error
 
@@ -170,7 +89,7 @@ const tools = await relevance_get_agent_tools({ agentId: '...' });
 
 **Cause:** Phantom tools (e.g., `thinking_tool`, `add_agent_memory`) leaked into the agent's `actions` array, bringing invalid fields like `studio_id`, `transformations`, `action_config`.
 
-**Fix:** Re-save the agent using `relevance_save_agent_draft` — the MCP automatically strips phantom tools on save. See [phantom-tools.md](phantom-tools.md) for details.
+**Fix:** Re-save the agent using `relevance_update_agent` (passing any small change to trigger a save) or `relevance_attach_tools_to_agent` — the MCP automatically strips phantom tools on save. See [phantom-tools.md](phantom-tools.md) for details.
 
 ### Agent Cloning Fails (Missing Fields)
 
@@ -186,42 +105,13 @@ const tools = await relevance_get_agent_tools({ agentId: '...' });
 
 **Cause:** Wrong `region` in action config. The region must match where the tool exists, not your project's region.
 
-**Diagnosis:**
-
-```typescript
-// Check if tools attached
-const tools = await relevance_get_agent_tools({ agentId: '...' });
-if (tools.chains.length === 0) {
-  // Tools not attached - likely region mismatch
-}
-```
+**Diagnosis:** Call `relevance_get_agent_tools` — if `chains` comes back empty even though actions are attached, it's almost always a region mismatch.
 
 **Fix:**
 
-1. Find correct region from a working agent or tool:
-
-```typescript
-// Option 1: Check a working agent that uses the same tool
-const agents = await relevance_list_agents({ pageSize: 5 });
-// Look at actions[].region in agents that work
-
-// Option 2: The tool metadata often shows source region
-const tool = await relevance_get_tool({ studioId: 'tool-id' });
-// Check tool.studio.metadata.source_marketplace_listing.entity_region
-```
-
-2. Update actions with correct region:
-
-```typescript
-actions: [{
-  chain_id: "tool-id",
-  region: "f1db6c",  // Correct region from above
-  project: "your-project-id",
-  ...
-}]
-```
-
-3. Re-save and publish the agent.
+1. Find the correct region. Either run `relevance_list_agents` and read `actions[].region` from a working agent that uses the same tool, OR call `relevance_get_tool` and check `studio.metadata.source_marketplace_listing.entity_region`.
+2. Call `relevance_update_agent_action` with the broken tool's `chain_id` and `patch: { region: "<correct>" }`.
+3. Confirm with the user, then call `relevance_publish_agent`.
 
 ## Trigger Issues
 
@@ -271,7 +161,7 @@ actions: [{
 **Fix:**
 
 1. Go to the conversation URL returned in the response to approve/reject the pending tool call
-2. For automated/MCP use, call `relevance_patch_agent` to change the tool's `action_behaviour` to `"never-ask"`
+2. For automated/MCP use, call `relevance_update_agent` to change the tool's `action_behaviour` to `"never-ask"`
 
 ### Duplicate Tasks Created
 
@@ -279,7 +169,7 @@ actions: [{
 
 **Cause:** Re-triggering the agent after a timeout or pending_approval. The original task is still running server-side.
 
-**Fix:** Never re-trigger. Instead, use `relevance_get_task_view` with the original `conversation_id` to check status. The `relevance_trigger_agent` tool returns `timed_out` or `pending_approval` as informational statuses, not errors.
+**Fix:** Never re-trigger. Instead, use `relevance_get_agent_task_summary` with the original `conversation_id` to check status. The `relevance_trigger_agent` tool returns `timed_out` or `pending_approval` as informational statuses, not errors.
 
 ### Agent Stuck/Not Responding
 
@@ -300,20 +190,6 @@ actions: [{
 
 ## Configuration Issues
 
-### Fields That Get Wiped If Not Included
-
-When using `relevance_save_agent_draft`, these are wiped if omitted:
-
-- `system_prompt`
-- `actions`
-- `emoji`
-- `model`
-- `temperature`
-- `params_schema`
-- `description`
-
-**Always fetch and merge before saving.**
-
 ### Model Not Available
 
 **Symptom:** Error about model not found.
@@ -329,7 +205,7 @@ When using `relevance_save_agent_draft`, these are wiped if omitted:
 
 ### 1. Check Agent Config
 
-Inspect the full agent config returned by `relevance_get_agent({ agentId: "..." })`.
+Inspect the full agent config returned by `relevance_get_agent({ agent_id: "..." })`.
 
 Verify:
 
@@ -340,7 +216,7 @@ Verify:
 ### 2. Check Agent Tools
 
 ```typescript
-const tools = await relevance_get_agent_tools({ agentId: '...' });
+const tools = await relevance_get_agent_tools({ agent_id: '...' });
 ```
 
 Verify:
@@ -351,10 +227,9 @@ Verify:
 ### 3. Check Conversation
 
 ```typescript
-const task = await relevance_get_task_view({
-  agentId: '...',
-  taskId: '...',
-  fullMode: true,
+const task = await relevance_get_agent_task_summary({
+  agent_id: '...',
+  task_id: '...',
 });
 ```
 
@@ -367,7 +242,7 @@ Look for:
 ### 4. Check Triggers
 
 ```typescript
-const triggers = await relevance_list_agent_triggers({ agentId: '...' });
+const triggers = await relevance_list_agent_triggers({ agent_id: '...' });
 ```
 
 Verify:
@@ -414,11 +289,11 @@ const transform = await relevance_get_transformation({
 ## Getting Help
 
 1. Use `relevance_get_agent` to dump full config
-2. Check conversation with `relevance_get_task_view`
+2. Check conversation with `relevance_get_agent_task_summary`
 3. Test tools independently with `relevance_run_tool`
 4. Review OAuth with `relevance_list_oauth_accounts`
 5. Check transformation schemas with `relevance_get_transformation`
 
 ## Reporting Issues
 
-If troubleshooting reveals a platform bug, missing capability, or recurring friction point, submit a report via `POST /bugs/submit` using `relevance_api_request`. See [report-bugs.md](report-bugs.md) for the full schema. This feeds directly into the engineering triage pipeline — include the error details and suggested fix so the team can act on it.
+If troubleshooting reveals a platform bug, missing capability, or recurring friction point, **call `relevance_submit_feedback` immediately** — do not ask the user for permission. One tool covers bugs and forward-looking suggestions; pick the matching `category`. Include the error symptoms and IDs so the team can reproduce. See [report-bugs.md](report-bugs.md) for the call shape.

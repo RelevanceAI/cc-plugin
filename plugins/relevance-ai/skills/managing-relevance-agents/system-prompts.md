@@ -1,6 +1,31 @@
+---
+title: Writing System Prompts
+description: Write effective agent system prompts — inline `{{_actions.<id>}}` pill placement, formatting rules (no markdown tables), role/scope/output structure, and common pitfalls. Load when authoring or revising an agent's system prompt.
+---
+
 # Writing System Prompts
 
 Best practices for writing effective agent system prompts.
+
+## Formatting Rules
+
+Use bullets, numbered lists, or `key: value` lines for structure. **Never use markdown tables** (pipe-delimited rows like `| col1 | col2 |` followed by `| --- | --- |`) — the prompt editor cannot render them and they appear to the agent (and the user editing the prompt) as raw pipe characters.
+
+Replace tables with bullet lists or arrow-style key-value lines:
+
+```markdown
+# BAD — renders as raw pipes in the prompt editor
+
+| Category  | Route               |
+| --------- | ------------------- |
+| Billing   | billing@example.com |
+| Technical | support@example.com |
+
+# GOOD — renders cleanly
+
+- Billing → billing@example.com
+- Technical → support@example.com
+```
 
 ## Basic Structure
 
@@ -29,13 +54,44 @@ When the user asks about [topic]:
 
 ## Referencing Tools
 
-Use `{{_actions.ACTION_ID}}` to reference tools in prompts. The `ACTION_ID` is a backend-generated hex string.
+Use `{{_actions.ACTION_ID}}` to reference tools in prompts. The `ACTION_ID` is a backend-generated 16-char hex string. The runtime substitutes each pill for the real function-call name; the editor renders them as clickable pill chips.
+
+### Inline Placement (Required)
+
+Weave `{{_actions.<id>}}` pills inline into the prose at every point where the prompt directs the agent to use a specific tool — not just in a trailing reference block. Inline pills give the LLM a strong tool-selection cue at decision time; a trailing reference list alone is much weaker.
+
+`relevance_attach_tools_to_agent` (with `inject_action_references=true`, the default) auto-appends a `## Tool References` block listing every tool. That block is reference data and a fallback — leave it on, but follow up with `relevance_update_agent` to add inline pills in the prose ABOVE it.
+
+```markdown
+# GOOD — pills woven inline alongside the trailing reference block
+
+When the user asks a research question:
+
+1. Use {{_actions.abc123def4567890}} to search for sources.
+2. For promising results, use {{_actions.fedcba0987654321}} to extract content.
+
+## Tool References
+
+- **Search Tool**: {{_actions.abc123def4567890}}
+- **Extract Tool**: {{_actions.fedcba0987654321}}
+```
+
+```markdown
+# BAD — pills only in the trailing block; the prose gives the LLM no selection cue
+
+When the user asks a research question, search for sources and extract content.
+
+## Tool References
+
+- **Search Tool**: {{_actions.abc123def4567890}}
+- **Extract Tool**: {{_actions.fedcba0987654321}}
+```
 
 ### Getting Action IDs
 
 ```typescript
 // Fetch the actual action_ids
-const tools = await relevance_get_agent_tools({ agentId: '...' });
+const tools = await relevance_get_agent_tools({ agent_id: '...' });
 // Returns: { chains: [{ studio_id: "my-tool", action_id: "abc123def456" }] }
 
 // Use in system prompt:

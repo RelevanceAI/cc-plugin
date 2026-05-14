@@ -94,7 +94,7 @@ Phantom tools are system-injected at runtime from agent settings. Never add them
 
 ### Attaching Tools to Agents
 
-Use `relevance_attach_tools_to_agent` — it handles fetch, merge, save, publish, action ID retrieval, and system prompt injection in one call. Test each tool with `relevance_trigger_tool` first — tools that return empty `{}` need their output config fixed.
+Use `relevance_attach_tools_to_agent` — it handles fetch, merge, save, publish, action ID retrieval, and system prompt injection in one call. Test each tool with `relevance_trigger_tool_async` first — tools that return empty `{}` need their output config fixed.
 
 ### Reserved Variable Prefixes
 
@@ -123,7 +123,7 @@ For backward compatibility, `US_RELEVANCE_*` variants are also supported.
 
 ## Handling Large MCP Tool Outputs
 
-Tools like `relevance_get_task_view` and `relevance_trigger_agent_sync` can return 100KB-500KB+ JSON responses.
+Tools like `relevance_get_agent_task_summary`, `relevance_list_agent_task_messages`, and `relevance_poll_agent_result` can return 100KB-500KB+ JSON responses.
 
 ```bash
 # CORRECT - limit input size FIRST

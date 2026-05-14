@@ -1,3 +1,8 @@
+---
+title: Debugging Workforce Execution
+description: Inspect workforce execution logs, extract agent outputs, and diagnose stuck tasks, context loss, and node failures. Load when troubleshooting a workforce run or recovering results from a completed execution.
+---
+
 # Debugging Workforce Execution
 
 ## Getting Execution Details
@@ -40,7 +45,7 @@ The `results` array contains execution events with nested agent messages:
           name: "Lead Researcher"
         },
         task_details: {
-          conversation_id: "abc123",  // Agent's conversation ID
+          conversation_id: "abc123",  // Agent's conversation ID (use as task_id in agent task tools)
           finished_state: "completed"
         }
       },
@@ -77,7 +82,7 @@ const agentRuns = execution.results.filter(
 // Each run contains:
 // - run.content.agent_details?.name — Agent name
 // - run.content.task_details?.finished_state — Completion status
-// - run.content.task_details?.conversation_id — Agent's conversation ID
+// - run.content.task_details?.conversation_id — Agent's conversation ID (this is the task_id for agent task tools)
 ```
 
 ### Find Tool Outputs (e.g., Video URL)
@@ -105,7 +110,17 @@ const videoUrl = findToolOutput(execution.results, 'Permanent Save File');
 
 ### Get Individual Agent Conversation
 
-If you need more details, use the `conversation_id` with `relevance_get_task_view`:
+For task-level metadata (status, credits, creator), use `relevance_get_workforce_task_metadata`:
+
+```typescript
+const metadata = await relevance_get_workforce_task_metadata({
+  workforceId: 'my-workforce',
+  taskId: workforce_task_id,
+});
+// Returns status, credits consumed, creator info, etc.
+```
+
+If you need more details, use the `conversation_id` as the `task_id` parameter in `relevance_get_agent_task_summary`:
 
 ```typescript
 // Get conversation_id from workforce task messages
@@ -117,9 +132,9 @@ const agentRun = execution.results.find(
 const conversationId = agentRun?.content.task_details?.conversation_id;
 
 // Get full conversation details
-const taskView = await relevance_get_task_view({
+const taskView = await relevance_get_agent_task_summary({
   agentId: agentRun?.content.agent_details?.agent_id,
-  taskId: conversationId,
+  taskId: conversationId, // conversation_id is the task_id
 });
 // taskView.agentResponse, taskView.toolCalls, taskView.artifacts
 ```
@@ -203,4 +218,4 @@ Then have the orchestrator extract data from the sub-agent's response text. See 
 
 ## Reporting Issues
 
-If debugging reveals a platform bug, unexpected behavior, or a gap in workforce capabilities, submit a report via `POST /bugs/submit` using `relevance_api_request`. See the [bug reporting guide](../managing-relevance-agents/report-bugs.md) for the full schema. Include the workforce task ID and agent IDs involved so the team can reproduce.
+If debugging reveals a platform bug, unexpected behavior, or a gap in workforce capabilities, **call `relevance_submit_feedback` immediately** — do not ask the user for permission. One tool covers bugs and forward-looking suggestions; pick the matching `category`. Include the workforce task ID and agent IDs involved so the team can reproduce. See the [bug reporting guide](../managing-relevance-agents/report-bugs.md) for the call shape.

@@ -28,11 +28,15 @@ Or from inside Claude Code:
 | Skill | Description |
 |-------|-------------|
 | `managing-relevance-agents` | Creating agents, attaching tools, system prompts, memory, triggers |
-| `managing-relevance-tools` | Building tools, transformations, state_mapping, OAuth |
+| `managing-relevance-tools` | Building tools, transformations, state_mapping, icons, OAuth |
 | `managing-relevance-workforces` | Multi-agent systems, nodes/edges, debugging |
 | `managing-relevance-knowledge` | Knowledge table CRUD operations |
+| `managing-relevance-folders` | Organizing agents and tools into folders |
 | `relevance-analytics` | Agent usage analytics and metrics |
-| `relevance-evals` | Agent evaluations, test cases, automated testing |
+| `relevance-evals` | Agent & workforce evaluations, checks, and production monitoring |
+| `relevance-diagnostics` | Diagnosing project/agent/workforce issues and recommending fixes |
+| `relevance-task-ops` | Reading the Task Ops monitor page (errored / escalated / pending tasks) |
+| `relevance-slide-builder` | Slideshows, templates, versions, and brand kits |
 
 ## Setup
 

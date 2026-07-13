@@ -27,6 +27,20 @@ Replace tables with bullet lists or arrow-style key-value lines:
 - Technical → support@example.com
 ```
 
+## Reading and Editing an Existing Prompt
+
+The default `relevance_get_agent` response returns only `system_prompt_preview` (truncated at 300 chars) plus `system_prompt_length` and `system_prompt_line_count` — never analyse or edit a prompt from the preview, it will silently mangle anything past 300 chars.
+
+Pick the approach by size (check `system_prompt_line_count` from `relevance_get_agent`):
+
+- **Small prompt / full rewrite** → `relevance_get_agent` with `summary: false` to read the whole thing, and `relevance_update_agent` with `patch.system_prompt` (or `relevance_create_agent`) to write it.
+- **Large prompt** → don't pull the whole thing into context. Use the dedicated tools, which fetch and mutate the prompt server-side:
+  - `relevance_search_agent_system_prompt` — grep for the section you care about (`pattern` is a JS regex); returns line numbers.
+  - `relevance_read_agent_system_prompt` — read a line-numbered window (`offset_line` / `limit_lines`, like `cat -n`). `limit_lines: 0` returns just the size.
+  - `relevance_edit_agent_system_prompt` — change a section by string replacement: each `edits[].old_string` must match the current draft **verbatim** and be **unique** (add surrounding context, or set `replace_all: true`). Pass `expected_line_count` (the `total_lines` you last read) to be told if the prompt changed underneath you. Saves to the **draft** — publish separately.
+
+Typical large-prompt edit loop: `search` to locate → `read` the surrounding lines → `edit` with a unique `old_string` → `read` again to confirm. You never send the whole prompt back.
+
 ## Basic Structure
 
 ```markdown
@@ -58,33 +72,23 @@ Use `{{_actions.ACTION_ID}}` to reference tools in prompts. The `ACTION_ID` is a
 
 ### Inline Placement (Required)
 
-Weave `{{_actions.<id>}}` pills inline into the prose at every point where the prompt directs the agent to use a specific tool — not just in a trailing reference block. Inline pills give the LLM a strong tool-selection cue at decision time; a trailing reference list alone is much weaker.
-
-`relevance_attach_tools_to_agent` (with `inject_action_references=true`, the default) auto-appends a `## Tool References` block listing every tool. That block is reference data and a fallback — leave it on, but follow up with `relevance_update_agent` to add inline pills in the prose ABOVE it.
+Weave `{{_actions.<id>}}` pills inline into the prose at every point where the prompt directs the agent to use a specific tool. Inline pills give the LLM a strong tool-selection cue at decision time.
 
 ```markdown
-# GOOD — pills woven inline alongside the trailing reference block
+# GOOD — pills woven inline at each decision point
 
 When the user asks a research question:
 
 1. Use {{_actions.abc123def4567890}} to search for sources.
 2. For promising results, use {{_actions.fedcba0987654321}} to extract content.
-
-## Tool References
-
-- **Search Tool**: {{_actions.abc123def4567890}}
-- **Extract Tool**: {{_actions.fedcba0987654321}}
 ```
 
 ```markdown
-# BAD — pills only in the trailing block; the prose gives the LLM no selection cue
+# BAD — prose describes the tools generically with no pills; the LLM has no
+
+# selection cue when it needs to act
 
 When the user asks a research question, search for sources and extract content.
-
-## Tool References
-
-- **Search Tool**: {{_actions.abc123def4567890}}
-- **Extract Tool**: {{_actions.fedcba0987654321}}
 ```
 
 ### Getting Action IDs
@@ -100,23 +104,18 @@ system_prompt: `Use {{_actions.abc123def456}} to search...`;
 
 **Important:** The `action_id` you set in the actions array is NOT used by the UI. You must fetch the backend-generated IDs.
 
-### Example with Tool References
+### Example: Pills Inline in a Workflow
 
 ```markdown
 You are a research assistant that helps users find information.
-
-## Available Tools
-
-- {{_actions.abc123}} - Search Google for information
-- {{_actions.def456}} - Scrape webpage content
 
 ## Workflow
 
 When the user asks about a topic:
 
-1. Use {{_actions.abc123}} to search for relevant sources
-2. For promising results, use {{_actions.def456}} to get full content
-3. Synthesize and summarize findings
+1. Use {{_actions.abc123}} to search for relevant sources.
+2. For promising results, use {{_actions.def456}} to get full content.
+3. Synthesize and summarize findings.
 ```
 
 ## Writing Guidelines

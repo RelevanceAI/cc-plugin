@@ -136,6 +136,12 @@ The `relevance_create_agent` response includes the new `agent_id` directly. If y
 
 ### Step 3: Add Tools and Configure (saves as draft)
 
+**Before attaching tools, pick the right one — prefer native over third-party.** Follow this order:
+
+1. **Reuse first — unless the user explicitly asked you to build from scratch.** `relevance_list_tools({ query: "..." })` — if the project already has a tool that does the job, attach it. Skip this step only when the user has asked for a fresh build.
+2. **Native transformation second.** `relevance_list_transformations({ search: "..." })` returns results partitioned into `native` and `pipedream` arrays. Wrap a `native` entry via `relevance_create_tool_from_transformation` and attach it.
+3. **Third-party only as fallback.** A `pipedream` entry (IDs follow the `{provider}_-_{action}` pattern) is a third-party integration — use it only when no native equivalent exists for the requested provider/action. Refer to it as a "third-party" integration in user-facing prose. See [`managing-relevance-tools/SKILL.md`](../managing-relevance-tools/SKILL.md#prefer-native-transformations) for the full hierarchy.
+
 Use `relevance_attach_tools_to_agent` to attach tools — it handles fetch/merge/save for you and saves to a draft:
 
 ```typescript
@@ -180,8 +186,15 @@ relevance_trigger_agent({
 After the user has reviewed the draft and confirmed they want it live, publish it.
 `relevance_publish_agent` always shows an approval card (even with auto-approve enabled).
 
+Always pass a concise `version_description` (and `version_name`) — a clear, one-line summary of what changed and why, easy to understand. This is the version-history trail; reuse the summary you gave the user and never leave it blank.
+
 ```typescript
-relevance_publish_agent({ agent_id: agent.agent_id });
+relevance_publish_agent({
+  agent_id: agent.agent_id,
+  version_name: 'Initial build',
+  version_description:
+    'Support agent that answers billing questions from the help-centre knowledge base.',
+});
 ```
 
 ## Best Practice: Examine Working Agents First

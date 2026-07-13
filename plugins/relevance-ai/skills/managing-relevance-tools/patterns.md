@@ -27,15 +27,14 @@ Search for information and analyze results.
       {
         name: "search",
         transformation: "serper_google_search",
-        params: { search_query: "{{query}}" },
+        params: { search_query: "{{params.query}}" },
         output: { results: "{{organic}}" }
       },
       {
         name: "analyze",
         transformation: "prompt_completion",
         params: {
-          prompt: "Analyze these search results about {{query}}:\n\n{{search.results}}",
-          model: "anthropic-claude-sonnet-4"
+          prompt: "Analyze these search results about {{params.query}}:\n\n{{steps.search.output.results}}"
         },
         output: { analysis: "{{answer}}" }
       }
@@ -43,6 +42,86 @@ Search for information and analyze results.
   }
 }
 ```
+
+## Knowledge Search (over a knowledge set)
+
+Semantically search a knowledge base. The step id is `search` (the catalog's
+friendly name is "knowledge search"). Its source param is `dataset_id`, and it
+**only** runs on a knowledge set — the value must resolve to `knowledge:<knowledge_set_id>`
+(or `knowledge:*` for all knowledge). A plain dataset name fails at run time with
+_"Search can only be performed on a knowledge set. Please convert the dataset to
+knowledge and try again."_
+
+> **The #1 knowledge-search bug — same shape as the OAuth footgun.** Exposing the
+> source as a plain `type: "string"` input (or defaulting it to a bare dataset name)
+> renders a free-text box, not the knowledge-set picker. The step then receives a
+> bare name, which resolves to a _dataset_, and fails — even though the input "looks"
+> filled in. Search requires a **vectorized knowledge set**; convert a plain dataset
+> to knowledge first (Knowledge tab in the app) if needed.
+
+```typescript
+// ❌ WRONG — plain string input defaulting to a bare dataset name.
+//    Renders a text box; the step resolves it to a dataset and fails.
+{
+  params_schema: {
+    properties: {
+      knowledge_set: {
+        type: "string",
+        title: "Knowledge Table",
+        default: "inbound_lead_source_messaging" // bare name — NOT a knowledge set
+      }
+    }
+  },
+  transformations: {
+    steps: [
+      {
+        name: "search",
+        transformation: "search",
+        params: { dataset_id: "{{params.knowledge_set}}", query: "{{params.query}}", query_type: "vector" }
+      }
+    ]
+  }
+}
+
+// ✅ RIGHT — knowledge-set input. Renders the picker, which yields a `knowledge:<id>` value.
+{
+  params_schema: {
+    type: "object",
+    properties: {
+      knowledge_base: {
+        type: "string",
+        title: "Knowledge Base",
+        description: "Select the knowledge set to search",
+        metadata: { content_type: "knowledge_set" }
+      },
+      query: { type: "string", title: "Query" }
+    },
+    required: ["knowledge_base", "query"]
+  },
+  transformations: {
+    steps: [
+      {
+        name: "search",
+        transformation: "search",
+        params: {
+          dataset_id: "{{params.knowledge_base}}", // resolves to "knowledge:<id>"
+          query: "{{params.query}}",
+          query_type: "vector"
+        },
+        output: { results: "{{vector_search}}" }
+      }
+    ]
+  }
+}
+```
+
+To search a **fixed** knowledge base instead of taking it as an input, hardcode the
+prefixed id: `dataset_id: "knowledge:<knowledge_set_id>"` (get ids from
+`relevance_list_knowledge_sets`).
+
+The related `summarize_knowledge` (source param `knowledge`) and `advanced_retrieval`
+(source param `knowledge_set`) steps take a knowledge set the same way — wire their
+source to a `content_type: "knowledge_set"` input or a `knowledge:`-prefixed value.
 
 ## Scrape + Extract
 
@@ -65,7 +144,7 @@ Scrape webpage and extract structured data.
         name: "scrape",
         transformation: "browserless_scrape",
         params: {
-          website_url: "{{url}}",
+          website_url: "{{params.url}}",
           method: "Text"
         },
         output: { content: "{{output.page}}" }
@@ -76,10 +155,9 @@ Scrape webpage and extract structured data.
         params: {
           prompt: `Extract key information from this webpage:
 
-{{scrape.content}}
+{{steps.scrape.output.content}}
 
-Return JSON with: title, main_points, contact_info`,
-          model: "anthropic-claude-sonnet-4"
+Return JSON with: title, main_points, contact_info`
         },
         output: { data: "{{answer}}" }
       }
@@ -90,7 +168,7 @@ Return JSON with: title, main_points, contact_info`,
 
 ## Multi-Query Loop
 
-Generate multiple queries and search each.
+Generate multiple queries and search each. This pattern shows where to place markdown notes for documentation — see [documentation.md](documentation.md) for the full rubric.
 
 ```typescript
 {
@@ -105,17 +183,34 @@ Generate multiple queries and search each.
   },
   transformations: {
     steps: [
+      // Header note — orients anyone reading the tool
+      {
+        name: "overview",
+        transformation: "markdown",
+        params: {
+          markdown: "### Multi-query web search and synthesis\n\nTakes a **{{params.topic}}** and produces a synthesised summary. The chain fans out (LLM generates queries → parallel search → synthesise) so the final summary is grounded in a wider slice of the web than a single query would return."
+        },
+        output: {}
+      },
       // Generate queries as JSON
       {
         name: "generate_queries",
         transformation: "prompt_completion",
         params: {
-          prompt: `Generate 5 search queries for: {{topic}}
+          prompt: `Generate 5 search queries for: {{params.topic}}
 Output ONLY a JSON array of strings:
-["query 1", "query 2", ...]`,
-          model: "anthropic-claude-sonnet-4"
+["query 1", "query 2", ...]`
         },
         output: { queries_json: "{{answer}}" }
+      },
+      // Inline note — explains why the parse step exists (non-obvious data reshape)
+      {
+        name: "why_parse",
+        transformation: "markdown",
+        params: {
+          markdown: "The LLM returns a JSON string in **{{steps.generate_queries.output.queries_json}}**, but `loop` requires an actual array — not a string. This step parses it and strips any markdown code-fence the LLM might wrap around the JSON."
+        },
+        output: {}
       },
       // Parse JSON to array
       {
@@ -124,7 +219,7 @@ Output ONLY a JSON array of strings:
         params: {
           code: `
 import json
-json_str = """{{generate_queries.queries_json}}"""
+json_str = """{{steps.generate_queries.output.queries_json}}"""
 json_str = json_str.strip()
 if json_str.startswith("\`\`\`"):
     json_str = json_str.split("\\n", 1)[1]
@@ -139,7 +234,7 @@ return {"queries": json.loads(json_str.strip())}
         name: "search_loop",
         transformation: "loop",
         params: {
-          items: "{{parse_queries.transformed.queries}}",
+          items: "{{steps.parse_queries.output.transformed.queries}}",
           execution_mode: "parallel",
           steps: [
             {
@@ -160,12 +255,11 @@ return {"queries": json.loads(json_str.strip())}
         name: "synthesize",
         transformation: "prompt_completion",
         params: {
-          prompt: `Synthesize findings about {{topic}} from these search results:
+          prompt: `Synthesize findings about {{params.topic}} from these search results:
 
-{{search_loop.all_results}}
+{{steps.search_loop.output.all_results}}
 
-Provide a comprehensive summary.`,
-          model: "anthropic-claude-sonnet-4"
+Provide a comprehensive summary.`
         },
         output: { summary: "{{answer}}" }
       }
@@ -199,7 +293,7 @@ Process a list of URLs in parallel.
         name: "scrape_all",
         transformation: "loop",
         params: {
-          items: "{{urls}}",
+          items: "{{params.urls}}",
           execution_mode: "parallel",
           error_handling: "continue",
           steps: [
@@ -239,12 +333,21 @@ Enrich data with external lookups.
   },
   transformations: {
     steps: [
+      // Header note — the website scrape is conditional on `domain`, worth flagging
+      {
+        name: "overview",
+        transformation: "markdown",
+        params: {
+          markdown: "### Enrich a company from name (+ optional domain)\n\nTakes **{{params.company_name}}** and an optional **{{params.domain}}**. Always searches the web; additionally scrapes the company's homepage when a domain is supplied. The final LLM step fuses both sources into a structured JSON profile."
+        },
+        output: {}
+      },
       // Search for company info
       {
         name: "search_company",
         transformation: "serper_google_search",
         params: {
-          search_query: "{{company_name}} company overview",
+          search_query: "{{params.company_name}} company overview",
           num: 5
         },
         output: { results: "{{organic}}" }
@@ -253,9 +356,9 @@ Enrich data with external lookups.
       {
         name: "scrape_site",
         transformation: "browserless_scrape",
-        if: "{{domain}}",
+        if: "{{params.domain}}",
         params: {
-          website_url: "https://{{domain}}",
+          website_url: "https://{{params.domain}}",
           method: "Text"
         },
         output: { website_content: "{{output.page}}" }
@@ -267,9 +370,9 @@ Enrich data with external lookups.
         params: {
           prompt: `Extract company information:
 
-Company: {{company_name}}
-Search results: {{search_company.results}}
-Website content: {{scrape_site.website_content}}
+Company: {{params.company_name}}
+Search results: {{steps.search_company.output.results}}
+Website content: {{steps.scrape_site.output.website_content}}
 
 Return JSON:
 {
@@ -280,8 +383,7 @@ Return JSON:
   "headquarters": "",
   "website": "",
   "social_links": []
-}`,
-          model: "anthropic-claude-sonnet-4"
+}`
         },
         output: { company_data: "{{answer}}" }
       }
@@ -303,7 +405,7 @@ Robust error handling with Python.
 import json
 
 try:
-    json_str = """{{previous_step.output}}"""
+    json_str = """{{steps.previous_step.output}}"""
     json_str = json_str.strip()
 
     # Handle markdown code blocks
@@ -332,10 +434,18 @@ Different actions based on input.
   transformations: {
     steps: [
       {
+        name: "overview",
+        transformation: "markdown",
+        params: {
+          markdown: "### Route input to a type-specific handler\n\nClassifies **{{params.input}}** as URL, email, or other, then runs only the matching handler via `if:` branches. The classifier output (`{{steps.determine_type.output.type}}`) is the routing key."
+        },
+        output: {}
+      },
+      {
         name: "determine_type",
         transformation: "prompt_completion",
         params: {
-          prompt: "Is '{{input}}' a URL, email, or other? Reply with just: url, email, or other",
+          prompt: "Is '{{params.input}}' a URL, email, or other? Reply with just: url, email, or other",
           model: "openai-gpt-4o-mini"
         },
         output: { type: "{{answer}}" }
@@ -343,17 +453,17 @@ Different actions based on input.
       {
         name: "process_url",
         transformation: "browserless_scrape",
-        if: "{{determine_type.type == 'url'}}",
+        if: "{{steps.determine_type.output.type == 'url'}}",
         params: {
-          website_url: "{{input}}"
+          website_url: "{{params.input}}"
         }
       },
       {
         name: "process_email",
         transformation: "prompt_completion",
-        if: "{{determine_type.type == 'email'}}",
+        if: "{{steps.determine_type.output.type == 'email'}}",
         params: {
-          prompt: "Extract info from email: {{input}}"
+          prompt: "Extract info from email: {{params.input}}"
         }
       }
     ]
@@ -379,7 +489,7 @@ has_more = True
 
 while has_more and page <= 10:  # Max 10 pages safety
     response = requests.get(
-        "{{api_url}}",
+        "{{params.api_url}}",
         params={"page": page, "per_page": 100}
     )
     data = response.json()

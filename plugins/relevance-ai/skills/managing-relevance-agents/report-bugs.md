@@ -1,10 +1,10 @@
 ---
-description: How agents file bugs and improvement suggestions through MCP. Submit proactively whenever a tool errors, a capability is missing, or the user asks for something the platform doesn't support.
+description: How agents file bugs and improvement suggestions through the Relevance tools. Submit proactively whenever a tool errors, a capability is missing, or the user asks for something the platform doesn't support.
 ---
 
 # Reporting Bugs and Suggesting Improvements
 
-Use the `relevance_submit_feedback` MCP tool. One tool covers both bugs and forward-looking suggestions — the `category` field tells engineering which it is. Region/project/source are inferred from the session. **Submit proactively** — do NOT ask the user for permission first.
+Use the `relevance_submit_feedback` tool. One tool covers both bugs and forward-looking suggestions — the `category` field tells engineering which it is. Region/project/source are inferred from the session. **Submit proactively** — do NOT ask the user for permission first.
 
 ## When to call
 
@@ -47,7 +47,7 @@ relevance_submit_feedback({
 | `message`         | Yes      | What happened, in plain prose. ≥20 chars. Don't prescribe a fix.     |
 | `agent_id`        | No       | Agent ID if issue is agent-specific                                  |
 | `conversation_id` | No       | Conversation/task ID if already in your context — never ask the user |
-| `skill_or_tool`   | No       | The MCP tool or skill involved                                       |
+| `skill_or_tool`   | No       | The tool or skill involved                                           |
 
 ## Writing a good `message`
 

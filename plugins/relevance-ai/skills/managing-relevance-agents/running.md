@@ -216,16 +216,6 @@ const metadata = await relevance_get_agent_task_metadata({
 // Returns status, credits consumed, runtime duration, etc.
 ```
 
-### List Jobs in Conversation
-
-```typescript
-relevance_api_request({
-  method: 'POST',
-  endpoint: `/agents/${agentId}/tasks/${taskId}/jobs/list`,
-  body: { page_size: 50 },
-});
-```
-
 ## Dry Run / Safe Testing Pattern
 
 For agents with potentially destructive tools (e.g. sending emails, deleting data), set `action_behaviour: "always-ask"` on those tools using `relevance_update_agent` during testing.

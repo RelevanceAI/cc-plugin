@@ -21,11 +21,11 @@ Quick reference for the most commonly used tool-step transformations in Relevanc
 
 ## Data & Search
 
-| Name               | Description                                      |
-| ------------------ | ------------------------------------------------ |
-| `knowledge_search` | Semantic search through uploaded knowledge bases |
-| `retrieve_data`    | Fetch records from Relevance AI datasets         |
-| `bulk_update`      | Update multiple dataset records at once          |
+| Name            | Description                                                                                                                                                                                                                                                           |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search`        | Semantic ("knowledge search") over a knowledge base. Source param `dataset_id` must be a knowledge set: `knowledge:<id>` or a `content_type: "knowledge_set"` input — a bare dataset name fails. See [patterns.md](patterns.md#knowledge-search-over-a-knowledge-set) |
+| `retrieve_data` | Fetch records from Relevance AI datasets                                                                                                                                                                                                                              |
+| `bulk_update`   | Update multiple dataset records at once                                                                                                                                                                                                                               |
 
 ## API Calls
 
@@ -165,7 +165,7 @@ Quick reference for the most commonly used tool-step transformations in Relevanc
 | --------------------------------------- | -------------------------------------------- |
 | Generate/analyze text                   | `prompt_completion`                          |
 | Analyze images                          | `prompt_completion_vision`                   |
-| Search your docs                        | `knowledge_search`                           |
+| Search your docs                        | `search` (needs a `knowledge:<id>` source)   |
 | Scrape a website                        | `browserless_scrape` or `firecrawl_api_call` |
 | Advanced scraping (social, e-commerce)  | `run_apify_dynamic`                          |
 | Generate video/image/audio              | `run_replicate_dynamic`                      |

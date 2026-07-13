@@ -5,7 +5,7 @@ description: Entry point for detecting and resolving missing OAuth accounts and 
 
 # Integration Setup
 
-Tools authenticate with external services in one of two ways. This doc is the router — use the MCP tools below to detect what's missing, then jump to the right deep-dive.
+Tools authenticate with external services in one of two ways. This doc is the router — use the Relevance tools below to detect what's missing, then jump to the right deep-dive.
 
 ## OAuth vs API keys
 
@@ -14,13 +14,14 @@ Tools authenticate with external services in one of two ways. This doc is the ro
 | Scope                 | Per tool parameter — the user picks an account for each tool                     | Per project/org — one key is reused by every tool that needs that provider                                    |
 | Tool schema           | Declared as a `params_schema` property with `content_type: "oauth_account"`      | Declared by the underlying transformation, not by the tool itself — so it does not appear as a tool parameter |
 | Where users configure | Integrations page → OAuth provider drawer (login flow)                           | Integrations page → API key provider drawer (paste secret)                                                    |
-| MCP can auto-fill     | Yes — `relevance_attach_tools_to_agent` sets the account ID as the param default | No — the key is looked up at runtime from the project/org                                                     |
+| Tools can auto-fill   | Yes — `relevance_attach_tools_to_agent` sets the account ID as the param default | No — the key is looked up at runtime from the project/org                                                     |
 
 ## When to Check
 
 - **After `relevance_attach_tools_to_agent`** — its `integration_warnings` lists tools needing OAuth or API keys.
 - **When tools fail** — errors like `"You need to add your chains_xxx_api_key"` or `"Invalid OAuth account"` indicate missing integrations.
 - **Before triggering an agent** — verify integrations are configured so the run doesn't fail mid-conversation.
+- **When investigating an already-failed task or run** — if the root cause is a missing or wrong OAuth account / API key, fetch the connect link here rather than describing the Integrations page in prose.
 
 ## Detecting missing integrations
 
@@ -77,6 +78,8 @@ Response shape (trimmed):
 ## Directing the user
 
 Always prefer the per-entry `setup_url` over the top-level one — it opens the provider's drawer directly. For API keys, show the `provider_label` (e.g. "Firecrawl API Key"), never the raw `provider` identifier.
+
+Surface `setup_url` as a **clickable link** the user can click straight through — never paraphrase it as navigation steps ("go to Integrations, find X, click Connect"). The link opens the exact provider drawer; prose just makes the user hunt for it.
 
 > Your tool _"Search HubSpot Contacts"_ needs a HubSpot OAuth connection. Please connect here: {setup_url}
 

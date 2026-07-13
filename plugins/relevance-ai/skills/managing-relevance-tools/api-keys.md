@@ -1,6 +1,6 @@
 ---
 title: API Key Integrations
-description: Detect, interpret, and resolve missing API-key integrations for Relevance tools via MCP. Use when agents' tools fail with "API key missing" errors, when attaching tools to an agent, or before triggering agents that depend on API-key providers.
+description: Detect, interpret, and resolve missing API-key integrations for Relevance tools. Use when agents' tools fail with "API key missing" errors, when attaching tools to an agent, or before triggering agents that depend on API-key providers.
 ---
 
 # API Key Integrations
@@ -15,7 +15,7 @@ Deep reference for API-key integrations. For the detection → setup → verify 
 
 Because the requirement lives on the underlying transformation, you cannot see it from the tool's `params_schema` alone — always use `relevance_check_tool_integration_requirements` (or `relevance_check_api_key_availability` for a project-wide read).
 
-> **Always show `provider_label` to the user, not `provider`.** The `provider` field is the internal identifier (e.g., `twilio_account_sid`, `aws-bedrock-iam-key-id`) — pass it through to other MCP calls and deep-link URLs, but never paste it into a user-facing message. Use `provider_label` (e.g., "Twilio Account SID") for anything the user will read. The label falls back to the raw identifier only when the provider is not in the catalog.
+> **Always show `provider_label` to the user, not `provider`.** The `provider` field is the internal identifier (e.g., `twilio_account_sid`, `aws-bedrock-iam-key-id`) — pass it through to other tool calls and deep-link URLs, but never paste it into a user-facing message. Use `provider_label` (e.g., "Twilio Account SID") for anything the user will read. The label falls back to the raw identifier only when the provider is not in the catalog.
 
 ## Project-level lookup
 
@@ -58,7 +58,7 @@ relevance_check_api_key_availability({ providers: ['firecrawl'] });
 
 ## Deep-link URL pattern
 
-The MCP tools always emit the `setup_url` for you. If you ever need to construct one manually, the pattern is:
+The Relevance tools always emit the `setup_url` for you. If you ever need to construct one manually, the pattern is:
 
 ```
 {baseUrl}/integrations/{region}/{projectId}?provider={providerValue}&type=api_key
@@ -68,7 +68,7 @@ Opening this URL lands the user on the integrations page with the right provider
 
 ## Multi-Key Providers
 
-Some providers are exposed as several independent key entries that must all be configured for the tool to work. The MCP returns one entry **per key** — treat each independently and send the user once per missing key. Each entry's `provider_label` will be human-readable (e.g., "Twilio Account SID", "Twilio Auth Token") — use those in your message to the user rather than the raw `provider` identifiers listed below.
+Some providers are exposed as several independent key entries that must all be configured for the tool to work. The tools return one entry **per key** — treat each independently and send the user once per missing key. Each entry's `provider_label` will be human-readable (e.g., "Twilio Account SID", "Twilio Auth Token") — use those in your message to the user rather than the raw `provider` identifiers listed below.
 
 | Provider                       | Keys that appear together                                                                                           |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------- |

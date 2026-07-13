@@ -141,11 +141,15 @@ Don't grep large JSON files. Use `head -c` before piping. Set timeouts on bash c
 
 Detailed guides for Relevance AI operations are in `skills/`:
 
-| Skill                            | What it covers                                                                             |
-| -------------------------------- | ------------------------------------------------------------------------------------------ |
-| `managing-relevance-agents/`     | Creating agents, attaching tools, system prompts, memory, phantom tools, triggers, testing |
-| `managing-relevance-tools/`      | Building tools, transformations, search order, state_mapping, output fixes, secrets, OAuth |
-| `managing-relevance-workforces/` | Multi-agent systems, nodes/edges, threading, triggering, debugging                         |
-| `managing-relevance-knowledge/`  | Knowledge table CRUD operations                                                            |
-| `relevance-analytics/`           | Agent usage analytics and metrics                                                          |
-| `relevance-evals/`               | Agent evaluations, test cases, automated testing                                           |
+| Skill                            | What it covers                                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `managing-relevance-agents/`     | Creating agents, attaching tools, system prompts, memory, phantom tools, triggers, testing        |
+| `managing-relevance-tools/`      | Building tools, transformations, search order, state_mapping, output fixes, icons, secrets, OAuth |
+| `managing-relevance-workforces/` | Multi-agent systems, nodes/edges, threading, triggering, debugging                                |
+| `managing-relevance-knowledge/`  | Knowledge table CRUD operations                                                                    |
+| `managing-relevance-folders/`    | Organizing agents and tools into folders — create, list, rename, move, delete                      |
+| `relevance-analytics/`           | Agent usage analytics and metrics                                                                  |
+| `relevance-evals/`               | Agent & workforce evaluations, checks, tool simulation, and production monitoring dashboards       |
+| `relevance-diagnostics/`         | Diagnosing what's wrong in a project/agent/workforce and recommending fixes                        |
+| `relevance-task-ops/`            | Reading the Task Ops (monitor) page — errored / escalated / awaiting-approval tasks                |
+| `relevance-slide-builder/`       | Slideshows, slideshow templates, versions, and brand kits                                          |

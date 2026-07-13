@@ -1,153 +1,149 @@
 ---
 name: relevance-analytics
-description: Retrieves usage analytics for Relevance AI agents and projects. Use when asked about agent usage, most active agents, execution counts, or usage trends over time.
+description: Retrieves usage analytics for Relevance AI agents and projects. Use when asked about agent/workforce/tool usage, credit spend, error rates, breakdowns, task-status counts, most active agents, execution counts, or usage trends over time.
 ---
 
 # Relevance AI Analytics
 
-Skill for retrieving and analyzing usage data for agents and projects.
+Skill for retrieving and analyzing usage data, credit spend, error rates, resource breakdowns, and task-status counts.
 
-> **📚 Full API Documentation:** `https://api-{region}.stack.tryrelevance.com/latest/documentation` (replace `{region}` with your project's region)
+## Dedicated Tools
 
-## When to Use
+Six tools are available for analytics queries. Optional filters follow one convention: **omit a filter to include everything** (all agents, all workforces, all origins).
 
-- Finding most used/active agents
-- Getting agent execution counts
-- Analyzing usage trends over time
-- Identifying idle or underutilized agents
-- Tracking tasks pending approval
+### relevance_get_analytics_resource_breakdown
 
-## No Dedicated MCP Tool
-
-Analytics uses `relevance_api_request` since there's no dedicated MCP tool. This skill shows you how to call the endpoints correctly.
-
-## Get Agent Analytics
-
-### Endpoint
-
-```http
-POST /agents/analytics
-```
-
-### Calling the Endpoint
+Per-resource scorecard. Pick `resource_type`: `agent`, `workforce`, or `tool`. Returns the matching dashboard breakdown table. Use it to rank resources and find the error-prone or expensive ones.
 
 ```typescript
-// Get all agent analytics (no filters)
-const analytics = await relevance_api_request({
-  endpoint: '/agents/analytics',
-  method: 'POST',
-  body: { filters: {} },
-});
-
-// Filter by specific agent
-const agentAnalytics = await relevance_api_request({
-  endpoint: '/agents/analytics',
-  method: 'POST',
-  body: {
-    filters: {
-      agentId: { eq: 'your-agent-id' },
-    },
-  },
-});
-
-// Filter by date range
-const rangeAnalytics = await relevance_api_request({
-  endpoint: '/agents/analytics',
-  method: 'POST',
-  body: {
-    filters: {
-      insert_date_: {
-        gte: '2025-01-01T00:00:00.000Z',
-        lte: '2025-01-31T23:59:59.999Z',
-      },
-    },
-  },
+// Per-agent scorecard
+relevance_get_analytics_resource_breakdown({
+  resource_type: 'agent',
+  start_date: '2026-03-01',
+  end_date: '2026-03-31',
 });
 ```
 
-### Response Structure
+**Response by `resource_type`:**
 
-```json
-{
-  "states_results": {
-    "timeseries": [
-      {
-        "insert_date_": "2025-01-20T00:00:00.000Z",
-        "source_type": "agent",
-        "source_id": "<agent_id>",
-        "event_type": "state-updated",
-        "event_value": "running",
-        "frequency": 5,
-        "total": 5,
-        "bucket": "weekly"
-      }
-    ],
-    "total_change": { ... },
-    "change_per_event_value": { ... }
-  },
-  "labels_results": { ... },
-  "tasks_created_results": {
-    "timeseries": [
-      {
-        "insert_date_": "2025-01-27T00:00:00.000Z",
-        "source_type": "agent",
-        "source_id": "<agent_id>",
-        "frequency": 10,
-        "total": 10,
-        "bucket": "weekly"
-      }
-    ],
-    "total_change": { ... }
-  },
-  "last_updated_at": "2025-01-23T00:00:00.000Z"
-}
+- `agent` → `{ agents: [{ agent_id, agent_name, task_count, error_rate, error_count, total_actions, credits_used, top_actions: [{ action_name, execution_count }] }] }`
+- `workforce` → `{ workforces: [{ workforce_id, workforce_name, workforce_tasks, agent_tasks, error_rate, error_count, total_actions, credits_used, top_agents }] }`
+- `tool` → `{ actions: [{ action_id, action_name, execution_count, error_rate, error_count, credits_used, top_agents: [{ agent_id, agent_name, task_count }] }] }`
+
+Each row carries both `error_rate` (percentage) and `error_count` (raw failure count) — rank by `error_count` when volume matters. Response field names keep the API's legacy "action" vocabulary (`actions`, `action_id`, `total_actions`) — those refer to tools.
+
+Optional filter: `resource_ids` — IDs of the selected `resource_type`. Omit to include all.
+
+### relevance_get_analytics_errors
+
+Recent errors from agent conversations, workforce tasks, and tool runs, plus a daily error-count time series. Use `resource_type` to scope to one origin; paginate with `cursor`.
+
+```typescript
+relevance_get_analytics_errors({
+  start_date: '2026-03-01T00:00:00.000Z',
+  end_date: '2026-03-31T23:59:59.999Z',
+  resource_type: 'tool',
+  page_size: 50,
+});
 ```
 
-### Key Fields
+**Response:** `{ errors: [{ source_type, source_id, source_name, source_context: { agent_id, agent_name, conversation_id, workforce_id, workforce_name, workforce_task_id }, error_time, error_message }], has_more, next_cursor, time_series: [{ date, count }] }`
 
-| Field                             | Description                         |
-| --------------------------------- | ----------------------------------- |
-| `event_value: "running"`          | Agent executed a task               |
-| `event_value: "idle"`             | Agent completed/stopped             |
-| `event_value: "pending-approval"` | Agent waiting for human approval    |
-| `frequency`                       | Count of events in that time bucket |
-| `bucket`                          | Time grouping (e.g., "weekly")      |
-| `source_id`                       | Agent ID                            |
+Per-row `source_type` is only `agent` or `tool` — rows never carry `source_type: "workforce"`. Workforce-origin errors are identified by `source_context.workforce_id`. `time_series` is first-page only — omitted when `cursor` is set.
+
+Inputs use ISO 8601 datetimes. Optional: `agent_ids`, `workforce_ids`, `resource_type` (`agent` | `workforce` | `tool`; omit for all origins), `page_size` (1–100), `cursor`, `timezone` (IANA, for day bucketing). ID filters are `agent_ids` / `workforce_ids` only — there is no `resource_ids` or tool-id filter on this tool.
+
+### relevance_get_analytics_usage_timeseries
+
+Daily usage time series for one project metric, with a summary. Use for usage trends over time (the error trend lives in `relevance_get_analytics_errors`).
+
+**Metrics:** `total_tasks`, `total_actions`, `total_credits`, `tasks_to_review`, `daily_active_users`, `tasks_escalated`
+
+```typescript
+// Credit spend over the last 30 days
+relevance_get_analytics_usage_timeseries({
+  metric: 'total_credits',
+  start_date: '2026-03-01',
+  end_date: '2026-03-31',
+});
+```
+
+**Response:** `{ metric_type, data_points: [{ timestamp, value, grouped_by }], summary: { total, average, min_value, max_value } }`
+
+Optional: `agent_ids` (omit for all agents).
+
+### relevance_get_analytics_task_status_counts
+
+Current task-status counts: `total`, plus `to_review` (needs human action), `escalated`, and `errored` buckets, and `by_state` (raw count per conversation state). Counts reflect the current state of tasks created in the window. Use for a quick health snapshot.
+
+```typescript
+relevance_get_analytics_task_status_counts({
+  start_date: '2026-03-01T00:00:00.000Z',
+  end_date: '2026-03-31T23:59:59.999Z',
+});
+```
+
+**Response:** `{ total, to_review, escalated, errored, by_state: { [state]: count } }`
+
+> The named buckets **overlap and are not additive** — `escalated` is also counted in `to_review`, and `errored-pending-approval` is in both `to_review` and `errored`. Don't sum them; use `total` and `by_state` for exact, mutually-exclusive counts. `errored` matches the Task Ops errored tab (errored states OR active failures attached), so it can exceed the sum of errored states in `by_state`.
+
+Inputs use ISO 8601 datetimes. Optional: `agent_ids` (omit for all agents). For the per-task list use `relevance_list_tasks` (filterable by view/state/agent/date — the Task Ops queue surface; see the `relevance-task-ops` skill); for trends use `relevance_get_analytics_usage_timeseries`.
+
+### relevance_get_analytics_agent_activity_timeseries
+
+Agent state time-series (running, idle, pending-approval) and task creation trends.
+
+```typescript
+relevance_get_analytics_agent_activity_timeseries({
+  agent_ids: ['agent-id-here'],
+  start_date: '2026-03-01',
+  end_date: '2026-03-31',
+});
+```
+
+**Response:** `{ states_results: { timeseries: [{ insert_date_, source_id, event_value, frequency, bucket }], total_change, change_per_event_value }, tasks_created_results: { timeseries, total_change } }`
+
+Optional: `agent_ids` (omit for all agents).
+
+### relevance_get_analytics_usage_breakdown
+
+Usage ranked by resource type — find which agents, tools, or workforces consume the most.
+
+```typescript
+// Which agents used the most credits?
+relevance_get_analytics_usage_breakdown({
+  resource_type: 'agent',
+  metric: 'credit',
+  start_date: '2026-03-01',
+  end_date: '2026-03-31',
+});
+```
+
+**Metrics:** `credit` (credit spend) or `executions` (execution count).
+
+**Response:** `{ query: { group, metric, from, to }, series: [{ id, actor: { id, type, metadata: { label, avatar_url } }, metric, value }] }` (the response echoes the API's legacy vocabulary: `group`, and `metric: "action"` for executions).
 
 ## Common Queries
 
-### Find Most Used Agents
+### Project health snapshot
 
-1. Call `relevance_api_request` with `POST /agents/analytics` and `{ filters: {} }`
-2. In the response, filter `states_results.timeseries` for entries where `event_value` is `"running"`
-3. Group by `source_id` (agent ID) and sum `frequency` to get total runs per agent
-4. Cross-reference agent IDs with `relevance_list_agents` to get agent names
+Call `relevance_get_analytics_task_status_counts` for total / to-review / escalated / errored, and `relevance_get_analytics_errors` (with `resource_type`) for the actual error messages.
 
-### Find Idle Agents (No Runs in Last 30 Days)
+### Find error-prone or expensive resources
 
-1. Call analytics with a date filter: `{ filters: { insert_date_: { gte: "2025-12-01T00:00:00.000Z" } } }`
-2. Collect all `source_id` values from entries where `event_value` is `"running"` — these are active agents
-3. Call `relevance_list_agents` and find agents whose IDs are NOT in the active set
+Use `relevance_get_analytics_resource_breakdown` with the relevant `resource_type` — returns error rate, error count, and credits per agent / workforce / tool in one call.
 
-### Count Tasks Pending Approval
+### Track a metric over time
 
-Call analytics with `{ filters: {} }` and sum the `frequency` of all entries where `event_value` is `"pending-approval"`.
+Use `relevance_get_analytics_usage_timeseries` with the metric you care about (e.g. `total_credits`, `tasks_escalated`) for daily trends.
 
-### Get Usage Trend for Specific Agent
+### Who spent the most
 
-Call analytics with `{ filters: { agentId: { eq: "your-agent-id" } } }`. The `states_results.timeseries` entries with `event_value: "running"` show weekly run counts via `insert_date_` (week) and `frequency` (count).
-
-## Related Endpoints
-
-| Endpoint                 | Purpose                                             |
-| ------------------------ | --------------------------------------------------- |
-| `GET /agents/list`       | List all agents (includes `metadata.last_run_date`) |
-| `GET /agents/{agentId}`  | Get agent details by ID                             |
-| `POST /agents/analytics` | Get usage analytics (this skill)                    |
+Use `relevance_get_analytics_usage_breakdown` with `resource_type` `agent` / `tool` / `workforce`.
 
 ## Tips
 
-1. **Pagination:** Analytics returns all data - no pagination needed
-2. **Date filtering:** Use ISO 8601 format for dates
-3. **Agent names:** Analytics only returns IDs - cross-reference with `relevance_list_agents`
-4. **Time buckets:** Data is pre-aggregated into "weekly" buckets
+1. **Date formats:** `relevance_get_analytics_resource_breakdown`, `relevance_get_analytics_usage_timeseries`, `relevance_get_analytics_agent_activity_timeseries`, and `relevance_get_analytics_usage_breakdown` take `YYYY-MM-DD`. `relevance_get_analytics_errors` and `relevance_get_analytics_task_status_counts` take full ISO 8601 datetimes (e.g. `2026-03-01T00:00:00.000Z`).
+2. **Access-limited tools:** some analytics tools need elevated project permissions or product entitlement. If a tool returns a permission / forbidden / entitlement / access-denied error, treat that signal as unavailable — don't retry repeatedly or read it as zero data.
+3. **One breakdown tool:** `relevance_get_analytics_resource_breakdown` covers agents, workforces, and tools — switch with `resource_type`.
+4. **Pagination:** `relevance_get_analytics_errors` supports cursor-based pagination via `cursor`.

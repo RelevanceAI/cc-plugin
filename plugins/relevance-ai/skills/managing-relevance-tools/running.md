@@ -66,7 +66,9 @@ relevance_get_latest_tool_run({
 
 ## Testing Workflow
 
-### 1. Test with Minimal Input
+> ⚠️ **A minimal run only proves the tool doesn't crash — not that it works the way an agent drives it.** After editing a tool, also test the branch the consumer actually takes (the success/write path, not just an early return) with the full argument set, and confirm the intended effect happened — don't report "it works" off a smoke test alone.
+
+### 1. Test with Minimal Input (smoke test)
 
 ```typescript
 relevance_run_tool({
@@ -74,6 +76,21 @@ relevance_run_tool({
   params: { query: 'simple test' },
 });
 ```
+
+### 1b. Test the real path with the full argument set (after edits)
+
+Run the tool the way the consumer invokes it — every param it sends on the path that matters — and check the side effect landed, not just that the call returned:
+
+```typescript
+relevance_run_tool({
+  studio_id: 'my-tool',
+  params: {
+    /* EVERY field the consumer sends on the real path */
+  },
+});
+```
+
+If the tool is consumed by an agent, prefer running an eval / a real agent conversation so the test reflects the arguments the agent actually assembles — see [relevance-evals](../relevance-evals/SKILL.md).
 
 ### 2. Test Each Step
 
@@ -133,33 +150,22 @@ return {"result": data}
 1. Check variable name spelling
 2. Verify previous step actually outputs that variable
 3. Check output mapping in previous step
+4. **Did you just rename a step?** Renaming doesn't rewrite references — search every later step's `params`, the tool `output` map, and `state_mapping` for the old `{{steps.<old_name>…}}` and update them. See [creating.md](creating.md#renaming-or-restructuring-a-step-update-references).
 
-## Debugging with Raw API
+## Inspecting tool runs
 
-### Get Tool Run History
+### List recent runs for a tool
 
 ```typescript
-relevance_api_request({
-  method: 'GET',
-  endpoint: `/studios/run_history/list?page_size=10&filters=${encodeURIComponent(
-    JSON.stringify([
-      {
-        field: 'studio_id',
-        filter_type: 'exact_match',
-        condition: '==',
-        condition_value: 'my-tool-id',
-      },
-    ])
-  )}`,
-});
+relevance_list_tool_runs({ tool_id: 'my-tool-id', page_size: 10 });
 ```
 
-### Get Specific Run Details
+### Get full details of a specific run
 
 ```typescript
-relevance_api_request({
-  method: 'GET',
-  endpoint: `/studios/tasks/${taskId}/get`,
+relevance_get_tool_run({
+  tool_id: 'my-tool-id',
+  task_id: '<task_id from list>',
 });
 ```
 

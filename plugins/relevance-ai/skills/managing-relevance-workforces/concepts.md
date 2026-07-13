@@ -1,3 +1,8 @@
+---
+title: Workforce Core Concepts
+description: Core workforce architecture — nodes, edges, threading model, and action configuration patterns. Load when designing multi-agent pipelines or learning how workforce control flow works.
+---
+
 # Workforce Core Concepts
 
 A **workforce** is a multi-agent system represented as a directed graph of nodes and edges.

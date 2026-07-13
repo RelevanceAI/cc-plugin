@@ -41,7 +41,7 @@ The `region` in actions must match **where the tool exists**, NOT your project's
 
 **Why this happens:** Relevance AI has multiple regions:
 
-- **API region** (e.g., `bcbe5a`): Where your MCP server connects
+- **API region** (e.g., `bcbe5a`): Where your project connects to the Relevance API
 - **Tools region** (e.g., `f1db6c`): Where tools/studios are stored
 
 Your project's API region may differ from where tools are stored.
@@ -195,10 +195,10 @@ LAYER 2: Agent actions[].default_values → Maps agent variable to tool input at
 LAYER 3: Tool params_schema → Fallback if agent doesn't pass value
 ```
 
-**All three layers are needed.** Apply each one with the right MCP tool:
+**All three layers are needed.** Apply each one with the right tool:
 
 1. Find the OAuth account id with `relevance_list_oauth_accounts`.
-2. **Layer 3 (tool fallback):** call `relevance_update_tool` with the tool's `studio_id` and a `params_schema` patch that sets `default: "<oauth_account_id>"` on the OAuth param.
+2. **Layer 3 (tool fallback):** call `relevance_get_tool` first, then `relevance_update_tool` with the tool's `studio_id` and the **complete** `params_schema` (every existing property) with `default: "<oauth_account_id>"` set on the OAuth param — `update_tool` replaces `params_schema` wholesale, so sending only the OAuth param would drop the rest.
 3. **Layer 1 (agent-level variable):** call `relevance_update_agent` with `patch: { params_schema: { type: "object", properties: { <oauth_param>: { type: "string", default: "<oauth_account_id>" } } } }`.
 4. **Layer 2 (per-action mapping):** for each affected attached tool, call `relevance_update_agent_action` with the tool's `chain_id` and `patch: { default_values: { <oauth_param>: "{{<oauth_param>}}" } }`. Do this once per attached tool.
 5. After the user confirms, call `relevance_publish_agent`.

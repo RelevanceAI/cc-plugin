@@ -20,9 +20,43 @@ When a tool needs to access a third-party API that requires OAuth authentication
 
 - Never hardcode `oauth_account_id` in tool step params
 - Always make it a top-level `params_schema` input
-- Add to `state_mapping` as `"oauth_account_id": "params.oauth_account_id"`
-- Reference in steps as `{{oauth_account_id}}`
+- Reference in steps as `{{params.<name>}}` (e.g. `{{params.oauth_account_id}}`) — bare `{{oauth_account_id}}` does not resolve
 - Set to "Set Manually" by default (never auto-assign)
+
+## ❌ Anti-pattern: plain-string / hardcoded account
+
+**The most common OAuth mistake: declaring the account as a plain text input (or pasting a raw account id into a step).** A `type: "string"` property _without_ `content_type: "oauth_account"` renders a free-text box, not the account selector. The tool then receives an un-credentialed string, and every subsequent step that calls the API fails — even though the input "looks" filled in.
+
+```typescript
+// ❌ WRONG — plain string input + hardcoded id. Renders a text box; steps fail.
+params_schema: {
+  properties: {
+    hubspot_account: {
+      type: "string",
+      title: "HubSpot Account ID",
+      default: "b9384e6a-f271-4f5a-929f-cefe2ebf7f0e" // raw id pasted in — does NOT carry credentials
+    }
+  }
+}
+
+// ✅ RIGHT — OAuth account input. Renders the account selector; steps get real credentials.
+params_schema: {
+  properties: {
+    hubspot_account: {
+      type: "string",
+      title: "HubSpot Account",
+      description: "Select your HubSpot account",
+      metadata: {
+        content_type: "oauth_account",
+        oauth_permissions: [{ provider: "hubspot", types: ["hubspot-connect-app"] }]
+      }
+    }
+  },
+  required: ["hubspot_account"]
+}
+```
+
+If you find an existing tool with this mistake, replace the plain-string input with the `oauth_account` form above and re-point the step's `oauth_account_id: "{{params.<name>}}"`. (Hardcoding the id at the **tool** level via `default` + `is_fixed_param` is only valid once the param already carries the OAuth metadata — see [OAuth for Agent-Called Tools](#critical-oauth-for-agent-called-tools).)
 
 ## Define OAuth Parameter
 
@@ -69,8 +103,8 @@ Reference the OAuth parameter using `oauth_account_id`:
   name: "get_backlinks",
   transformation: "ahrefs_-_ahrefs-get-backlinks-one-per-domain",
   params: {
-    oauth_account_id: "{{ahrefs_account}}",  // Reference the param
-    target: "{{target_url}}",
+    oauth_account_id: "{{params.ahrefs_account}}",  // Reference the param
+    target: "{{params.target_url}}",
     limit: 100
   }
 }
@@ -133,8 +167,8 @@ relevance_create_tool({
         name: 'get_backlinks',
         transformation: 'ahrefs_-_ahrefs-get-backlinks-one-per-domain',
         params: {
-          oauth_account_id: '{{ahrefs_account}}',
-          target: '{{target_url}}',
+          oauth_account_id: '{{params.ahrefs_account}}',
+          target: '{{params.target_url}}',
           limit: 100,
           mode: 'domain',
           select: ['url_from', 'domain_from', 'domain_rating', 'anchor'],
@@ -173,26 +207,21 @@ relevance_list_oauth_accounts();
 
 ## Finding Transformation OAuth Requirements
 
-Check what OAuth parameters a transformation needs:
+Use `relevance_get_transformation_requirements({ transformation_id })` — it lists the OAuth providers and API keys the step requires, and cross-references them against the project's connected accounts and configured keys in one call. Missing providers come back with `status: 'missing'` plus a setup URL the user can click.
 
 ```typescript
-// Get transformation details
-relevance_api_request({
-  method: 'GET',
-  endpoint: '/transformations/ahrefs_-_ahrefs-get-backlinks-one-per-domain/get',
+relevance_get_transformation_requirements({
+  transformation_id: 'ahrefs_-_ahrefs-get-backlinks-one-per-domain',
 });
-
-// Check input_schema for oauth_account_id
-// The schema shows:
-// - oauth_account_id - Parameter name to pass account ID
-// - oauth_permissions - Required permissions
 ```
+
+If you only need the raw schema (e.g. you're inspecting `oauth_permissions` metadata directly), call `relevance_get_transformation({ transformation_id })` and read `input_schema.properties.oauth_account_id.metadata.oauth_permissions`.
 
 ## CRITICAL: OAuth for Agent-Called Tools
 
 Agent actions can't carry `oauth_account_id` directly — the action config schema has no `params` field, and trying to add one fails with `"must NOT have additional properties"`. Common symptom: `"You need to add your chains_<provider>_api_key API key"`.
 
-**Fix:** put the OAuth account on the **tool**, not the action. Call `relevance_update_tool` with a `params_schema` patch that sets, on the OAuth param: `default: "<oauth_account_id>"` (provides the value when the tool is called without it) AND `metadata.is_fixed_param: true` (hides the field from the UI). Both are required — `is_fixed_param` alone does not provide a value. Keep the rest of the OAuth metadata (`content_type: "oauth_account"`, `oauth_account_provider`, `oauth_permissions`) intact.
+**Fix:** put the OAuth account on the **tool**, not the action. Call `relevance_get_tool` first, then `relevance_update_tool` with the **complete** `params_schema` (every existing property) — `update_tool` replaces `params_schema` wholesale, so a partial one drops the other params. On the OAuth param set: `default: "<oauth_account_id>"` (provides the value when the tool is called without it) AND `metadata.is_fixed_param: true` (hides the field from the UI). Both are required — `is_fixed_param` alone does not provide a value. Keep the rest of the OAuth metadata (`content_type: "oauth_account"`, `oauth_account_provider`, `oauth_permissions`) intact.
 
 ### Key Insights
 

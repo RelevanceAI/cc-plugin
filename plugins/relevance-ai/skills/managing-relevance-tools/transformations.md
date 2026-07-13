@@ -7,6 +7,77 @@ description: Implementation reference for transformations — input/output patte
 
 Complete reference for transformation types and their outputs.
 
+## Use the typed Relevance tools — never the raw API for transformations
+
+For anything transformation-related, reach for the typed tools. They validate, they return full schemas, and they short-circuit the failure mode where the agent guesses parameter names from convention.
+
+| What you want                                                              | Use this tool                               |
+| -------------------------------------------------------------------------- | ------------------------------------------- |
+| Browse available steps (with filters by integration / use_case / category) | `relevance_list_transformations`            |
+| Inspect a step's full input/output schema before configuring params        | `relevance_get_transformation`              |
+| Test a step in isolation with candidate params before saving a tool        | `relevance_run_transformation`              |
+| Check whether the OAuth account / API key needed by a step is connected    | `relevance_get_transformation_requirements` |
+| Wrap a step as a standalone tool                                           | `relevance_create_tool_from_transformation` |
+
+Every transformation-related need has a typed tool above — if you find a gap, file feedback rather than working around it.
+
+If `relevance_get_transformation` returns a response where `input_schema` is missing, or `input_schema.properties` is empty, surface that to the user. Do not guess parameter names from external API conventions — the schema being absent is a signal, not an invitation.
+
+## Step output vs tool output (two different things)
+
+Two layers of "output" exist and they map to different fields and different tools — don't conflate them.
+
+| Layer                   | Edited via                                                             | Purpose                                                                                                                                       |
+| ----------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Step output (alias)** | `relevance_update_tool_step` (patch the step's `output`)               | Maps a step's transformation output to state variables that later steps reference (e.g. `output: { text: "{{answer}}" }`). Local to one step. |
+| **Tool output**         | `relevance_set_tool_output` (paired fields `output` + `output_schema`) | Configures what the tool returns at runtime (`output`) and how it's displayed (`output_schema`). See [outputs.md](outputs.md).                |
+
+Steps go through `relevance_add_tool_step` / `relevance_update_tool_step` / `relevance_remove_tool_step` / `relevance_move_tool_step`; outputs go through `relevance_set_tool_output`.
+
+`relevance_update_tool_step` patches the user-editable fields of a step: `name`, `display_name`, `params`, `output`, `output_schema`, `if`, `foreach`, `continue_on_error`, `use_fallback_on_skip`, `invent_instructions`, `default_output_values`. Of those, `params`, `output`, and `output_schema` merge one level deep — a patch like `{ params: { model: "X" } }` preserves sibling keys (`prompt`, `system_prompt`, `temperature`). Other fields replace wholesale.
+
+Other step fields (`transformation`, `version`, `version_metadata`, `saved_params`, `parent_step`, `branch_id`) are not patchable through this tool. To change a step's transformation type or position, use `relevance_add_tool_step` / `relevance_remove_tool_step` / `relevance_move_tool_step`.
+
+## Picking a transformation: native first
+
+Before consulting the per-type sections below, decide **which** transformation to use. `relevance_list_transformations` returns results partitioned into `native` and `pipedream` arrays:
+
+1. **`native`** — built and maintained by Relevance AI. Always prefer these.
+2. **`pipedream`** — third-party integrations (IDs shaped like `{provider}_-_{action}`). Use only when no native equivalent exists.
+
+Quick tells you are about to pick a third-party entry:
+
+- The `transformation_id` contains `_-_` (e.g. `jira_-_jira-create-issue`, `sharepoint_-_create-folder`).
+- The result is in the `pipedream` array of the search response.
+
+Quick tells you have the native version:
+
+- The `transformation_id` is a clean snake_case name (e.g. `jira_native_create_issue`, `zendesk_native_create_ticket`, `linear_create_ticket`).
+- The result is in the `native` array of the search response.
+
+When in doubt, search with `relevance_list_transformations({ search: "<provider> <action>" })` and inspect both arrays before choosing. Never silently fall back to a third-party entry — if no native equivalent exists, surface that to the user (e.g. "There's no native action for this, but a third-party one exists — want me to use it?"). When referring to a `pipedream` entry in user-facing prose, call it a "third-party" integration.
+
+## Documentation
+
+### markdown
+
+A native, inline, side-effect-free step that renders rich markdown between real steps in the Relevance app UI. Use it to document multi-step tools so users can understand the chain at a glance. No output — never reference it from a downstream step.
+
+```typescript
+{
+  name: "overview",
+  transformation: "markdown",
+  params: {
+    markdown: "### What this tool does\nTakes **{{params.topic}}** and returns a summarised brief..."
+  },
+  output: {}
+}
+```
+
+**Output:** none.
+
+**When to insert these steps**, what to write in them, and the style rules live in [documentation.md](documentation.md). The short version: add a header note as step 0 for any tool with ≥3 steps or non-obvious logic, and an inline note before a branch (`if:`), loop (`foreach`), non-obvious data reshape, or an LLM step whose prompt encodes non-obvious logic. **Do not** add one per step — over-noting is worse than under-noting.
+
 ## LLM / Text Processing
 
 ### prompt_completion
@@ -18,8 +89,7 @@ Text generation with LLM.
   name: "analyze",
   transformation: "prompt_completion",
   params: {
-    prompt: "Analyze this: {{input}}",
-    model: "anthropic-claude-sonnet-4"
+    prompt: "Analyze this: {{params.input}}"
   },
   output: {
     result: "{{answer}}"  // NOT {{text}}!
@@ -48,8 +118,7 @@ Image analysis with LLM.
   transformation: "prompt_completion_vision",
   params: {
     prompt: "Describe this image",
-    model: "anthropic-claude-sonnet-4",
-    image: "{{image_url}}"
+    image: "{{params.image_url}}"
   },
   output: {
     description: "{{answer}}"
@@ -68,7 +137,7 @@ Scrape webpage content.
   name: "scrape",
   transformation: "browserless_scrape",
   params: {
-    website_url: "{{url}}",
+    website_url: "{{params.url}}",
     method: "Text"
   },
   output: {
@@ -88,7 +157,7 @@ Google web search.
   name: "search",
   transformation: "serper_google_search",
   params: {
-    search_query: "{{query}}",
+    search_query: "{{params.query}}",
     num: 10
   },
   output: {
@@ -108,7 +177,7 @@ Clean web content for LLM.
   name: "clean",
   transformation: "jina_reader_-_jina_reader-convert-to-llm-friendly-input",
   params: {
-    url: "{{url}}"
+    url: "{{params.url}}"
   },
   output: {
     text: "{{text}}"
@@ -129,7 +198,7 @@ Run any Apify actor (2000+ scrapers).
   params: {
     actor_id: "compass/crawler-google-places",
     inputs: {
-      searchStringsArray: ["{{query}}"],
+      searchStringsArray: ["{{params.query}}"],
       maxCrawledPlaces: 20
     }
   },
@@ -163,7 +232,7 @@ Make HTTP requests to **external** APIs. No auth injection — you must pass hea
   params: {
     url: "https://api.example.com/data",
     method: "GET",
-    headers: { "Authorization": "Bearer {{api_key}}" }
+    headers: { "Authorization": "Bearer {{params.api_key}}" }
   },
   output: {
     result: "{{response_body}}"
@@ -209,10 +278,10 @@ Make HTTP requests to **Relevance platform** APIs. **Auth is auto-injected** fro
   name: "update_metadata",
   transformation: "relevance_api_call",
   params: {
-    path: "/knowledge/sets/{{conversation_id}}/update_metadata",
+    path: "/knowledge/sets/{{params.conversation_id}}/update_metadata",
     method: "POST",
     body: {
-      updates: { conversation: { tags: "{{tags}}" } }
+      updates: { conversation: { tags: "{{params.tags}}" } }
     }
   },
   output: {
@@ -273,6 +342,8 @@ return { filtered };
 
 Custom Python logic with template substitution.
 
+> ⚠️ The parameter field is **`code`** — NOT `source_code`. Passing `source_code` (or any other alias) will be rejected by the schema with "must NOT have additional properties".
+
 ```typescript
 {
   name: "process",
@@ -302,7 +373,7 @@ return {"filtered": processed}
 
 ```typescript
 // Python returns: {"my_data": [...]}
-// Next step uses: {{python_step.transformed.my_data}}
+// Next step uses: {{steps.python_step.output.transformed.my_data}}
 ```
 
 **Use Python when:** You need pandas, complex datetime manipulation, numpy, or other Python-specific libraries.
@@ -311,19 +382,22 @@ return {"filtered": processed}
 
 ### Python: Accessing Tool Input Parameters
 
-**`steps['params']` does NOT exist.** To access tool input parameters in Python, you MUST use template substitution (`'{{param_name}}'`). The `steps` dict only contains outputs from previous transformation steps, not the tool's input params.
+**`steps['params']` does NOT exist.** To access tool input parameters in Python, you MUST use template substitution `'{{params.<name>}}'` (note the `params.` prefix). The `steps` dict only contains outputs from previous transformation steps, not the tool's input params.
 
 ```python
 # WRONG - KeyError: 'params'
 url = steps['params']['website_url']
 
-# CORRECT - template substitution for input params
+# WRONG - bare name does not resolve; literal string "{{website_url}}" leaks into your code
 url = '{{website_url}}'
+
+# CORRECT - template substitution for input params
+url = '{{params.website_url}}'
 ```
 
 **Use direct dict access** (`steps['...']`) for previous step outputs — it's cleaner and avoids JSON parsing issues.
 
-**Use template substitution** (`{{...}}`) for tool input params and when injecting values into string literals (e.g., SQL queries, URLs).
+**Use template substitution** (`{{params.<name>}}`) for tool input params and when injecting values into string literals (e.g., SQL queries, URLs).
 
 ## Loop Transformation
 
@@ -336,7 +410,7 @@ Iterate over arrays.
   name: "process_urls",
   transformation: "loop",
   params: {
-    items: "{{urls}}",  // MUST be actual array, not JSON string
+    items: "{{params.urls}}",  // MUST be actual array, not JSON string
     execution_mode: "parallel",
     error_handling: "continue",
     steps: [
@@ -370,7 +444,7 @@ Convert files to text.
   name: "extract",
   transformation: "file_to_text_llm_friendly",
   params: {
-    file: "{{file_url}}"
+    file: "{{params.file_url}}"
   },
   output: {
     content: "{{text}}"
@@ -382,16 +456,19 @@ Supports: PDF, Word, CSV, Excel
 
 ## Quick Reference Table
 
-| Transformation               | Key Output            | Access Pattern                                |
-| ---------------------------- | --------------------- | --------------------------------------------- |
-| `prompt_completion`          | `{{answer}}`          | `{{step.answer}}`                             |
-| `python_code_transformation` | `return {"key": val}` | `{{step.transformed.key}}`                    |
-| `browserless_scrape`         | `{{output.page}}`     | `{{step.content}}` (via output mapping)       |
-| `serper_google_search`       | `{{organic}}`         | `{{step.results}}`                            |
-| `loop`                       | `{{results}}`         | Array of `{inner_step: {outputs}}`            |
-| `run_apify_dynamic`          | `{{items}}`           | `{{step.items}}`                              |
-| `api_call`                   | `{{response_body}}`   | `{{step.response_body}}`                      |
-| `relevance_api_call`         | `{{response_body}}`   | `{{step.response_body}}` (auth auto-injected) |
+"Key Output" is the field name on the transformation's raw response (use it inside that step's own `output:` mapping). "Access Pattern" is how a **downstream** step reads that value — always via the full `{{steps.<step_name>.output.<field>}}` path.
+
+| Transformation               | Key Output            | Downstream Access Pattern                                          |
+| ---------------------------- | --------------------- | ------------------------------------------------------------------ |
+| `markdown`                   | _(none)_              | Documentation step — see [documentation.md](documentation.md)      |
+| `prompt_completion`          | `{{answer}}`          | `{{steps.<name>.output.answer}}`                                   |
+| `python_code_transformation` | `return {"key": val}` | `{{steps.<name>.output.transformed.key}}`                          |
+| `browserless_scrape`         | `{{output.page}}`     | `{{steps.<name>.output.output.page}}` (or via your output mapping) |
+| `serper_google_search`       | `{{organic}}`         | `{{steps.<name>.output.organic}}` (or via your output mapping)     |
+| `loop`                       | `{{results}}`         | `{{steps.<name>.output.results}}` — array of `{inner_step: {...}}` |
+| `run_apify_dynamic`          | `{{items}}`           | `{{steps.<name>.output.items}}`                                    |
+| `api_call`                   | `{{response_body}}`   | `{{steps.<name>.output.response_body}}`                            |
+| `relevance_api_call`         | `{{response_body}}`   | `{{steps.<name>.output.response_body}}` (auth auto-injected)       |
 
 ## Email Transformations
 
@@ -407,10 +484,10 @@ Sends email through user's Gmail or Outlook via OAuth.
   "transformation": "send_email",
   "params": {
     "provider": { "_oneof_type_": "Gmail" },
-    "oauth_account_id": "{{gmail_account}}",
+    "oauth_account_id": "{{params.gmail_account}}",
     "to": ["recipient@example.com"],
-    "subject": "{{subject}}",
-    "body": "{{email_body}}"
+    "subject": "{{params.subject}}",
+    "body": "{{params.email_body}}"
   }
 }
 ```
@@ -459,8 +536,8 @@ output:
 ```yaml
 # Python returns: {"items": [...]}
 # Access via:
-{{python_step.transformed.items}}    # CORRECT
-{{python_step.items}}                 # WRONG
+{{steps.python_step.output.transformed.items}}    # CORRECT
+{{steps.python_step.output.items}}                # WRONG — no .transformed wrapper
 ```
 
 ### 3. Loop requires actual array, not JSON string
@@ -472,18 +549,18 @@ output:
   params:
     code: |
       import json
-      return {"items": json.loads("""{{llm_step.json_str}}""")}
+      return {"items": json.loads("""{{steps.llm_step.output.json_str}}""")}
 
 - name: loop_step
   transformation: loop
   params:
-    items: '{{parse.transformed.items}}' # Now an actual array
+    items: '{{steps.parse.output.transformed.items}}' # Now an actual array
 ```
 
 ### 4. Handle markdown code blocks from LLMs
 
 ````python
-json_str = """{{step.json_output}}"""
+json_str = """{{steps.step.output.json_output}}"""
 json_str = json_str.strip()
 if json_str.startswith("```"):
     json_str = json_str.split("\n", 1)[1]
@@ -498,11 +575,11 @@ data = json.loads(json_str.strip())
 
 ```python
 # WRONG - This will be truthy even when contact_id is "undefined"
-if '{{contact_id}}':
-    do_something('{{contact_id}}')
+if '{{params.contact_id}}':
+    do_something('{{params.contact_id}}')
 
 # CORRECT - Explicitly check for invalid values
-contact_id = '{{contact_id}}'
+contact_id = '{{params.contact_id}}'
 if contact_id and contact_id not in ['', 'undefined', 'null', 'None']:
     do_something(contact_id)
 
@@ -526,7 +603,7 @@ if contact_id and contact_id not in ['', 'undefined', 'null', 'None'] and contac
 
 ```python
 # Add validation step before API call
-deal_id = '{{deal_id}}'
+deal_id = '{{params.deal_id}}'
 if not deal_id or deal_id in ['', 'undefined', 'null', 'None'] or not deal_id.isdigit():
     raise ValueError(f'Invalid deal_id: {deal_id}. Must be a valid numeric ID.')
 return deal_id
@@ -541,13 +618,13 @@ return deal_id
 ```yaml
 # WRONG
 output:
-  contact: "{{search.results[0]}}"
+  contact: '{{steps.search.output.results[0]}}'
 
 # CORRECT - return the whole results, let caller check if empty
 output:
-  found: "{{search.total > 0}}"
-  total: "{{search.total}}"
-  results: "{{search.results}}"
+  found: '{{steps.search.output.total > 0}}'
+  total: '{{steps.search.output.total}}'
+  results: '{{steps.search.output.results}}'
 ```
 
 ### 8. Use Python for timestamps, not {{now()}}
@@ -578,7 +655,7 @@ output:
   params:
     body:
       properties:
-        hs_timestamp: '{{get_timestamp.timestamp}}'
+        hs_timestamp: '{{steps.get_timestamp.output.timestamp}}'
 ```
 
 ### 9. JS code steps: use backtick template literals, NOT single quotes
@@ -589,10 +666,10 @@ output:
 
 ```javascript
 // WRONG - breaks if param contains an apostrophe (e.g., "O'Brien")
-const name = '{{name}}';
+const name = '{{params.name}}';
 
 // BETTER - handles apostrophes in values
-const name = `{{name}}`;
+const name = `{{params.name}}`;
 
 // BEST for complex data - use native steps access (no template injection needed)
 const name = steps.previous_step.output.name;
@@ -600,10 +677,10 @@ const name = steps.previous_step.output.name;
 
 ### 10. JS code steps: handle array params that may serialize as strings
 
-When a tool param is typed as `array`, `{{param}}` may serialize as a comma-separated string. Always handle both:
+When a tool param is typed as `array`, `{{params.<name>}}` may serialize as a comma-separated string. Always handle both:
 
 ```javascript
-let items = `{{items}}`;
+let items = `{{params.items}}`;
 try {
   items = JSON.parse(items);
 } catch {
@@ -614,9 +691,9 @@ try {
 }
 ```
 
-### 11. Variable shadowing in JS code steps
+### 11. Variable shadowing in JS code steps (only when using `state_mapping`)
 
-state_mapping keys are pre-declared by the runtime. Never use `const` or `let` to declare a variable with the same name as a state_mapping key -- it will shadow the injected value.
+If your tool has a `state_mapping`, its keys are pre-declared by the runtime as variables in the JS code step's scope. Never `const`/`let`-declare a variable with the same name as a state_mapping key — it shadows the injected value. If you don't use `state_mapping` (the default for new tools), this gotcha doesn't apply.
 
 ### 12. `params_schema` must use proper JSON Schema structure
 

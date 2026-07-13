@@ -7,7 +7,7 @@ description: Manages Relevance AI agents - creating, configuring tools, writing 
 
 Skill for creating, configuring, running, and debugging Relevance AI agents.
 
-> **📚 Full API Documentation:** If MCP tools don't cover your use case, see `https://api-{region}.stack.tryrelevance.com/latest/documentation` (replace `{region}` with your project's region)
+> **📚 Full API Documentation:** If the Relevance tools don't cover your use case, see `https://api-{region}.stack.tryrelevance.com/latest/documentation` (replace `{region}` with your project's region)
 
 ## When to Use
 
@@ -19,33 +19,36 @@ Skill for creating, configuring, running, and debugging Relevance AI agents.
 - Running agent tasks
 - Debugging agent execution issues
 
-## MCP Tools
+## Tools
 
-| Tool                                 | Description                                                                                                                                                                                                          |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `relevance_list_agents`              | List all agents (supports search)                                                                                                                                                                                    |
-| `relevance_get_agent`                | Get agent config. Defaults to the unpublished draft when one exists; pass `version: "active"` to inspect live. Response includes `viewed_version`, `active_version_id`, `draft_version_id`, `has_unpublished_draft`. |
-| `relevance_create_agent`             | Create a NEW agent — saves to DRAFT only; call `relevance_publish_agent` to make it live                                                                                                                             |
-| `relevance_update_agent`             | Update an existing agent — partial-merge, saves to DRAFT only                                                                                                                                                        |
-| `relevance_attach_tools_to_agent`    | Attach tools to an agent — saves to DRAFT only                                                                                                                                                                       |
-| `relevance_update_agent_action`      | Update per-tool config (action_behaviour, prompt_description, default_values, overrides, etc.) on a single attached tool — saves to DRAFT only                                                                       |
-| `relevance_detach_tools_from_agent`  | Remove one or more attached tools from an agent — saves to DRAFT only                                                                                                                                                |
-| `relevance_publish_agent`            | Publish the current draft to live. Always shows an approval card.                                                                                                                                                    |
-| `relevance_list_agent_versions`      | List version history for an agent                                                                                                                                                                                    |
-| `relevance_get_agent_version`        | Get a specific historical version's config                                                                                                                                                                           |
-| `relevance_restore_agent_version`    | Duplicate a previous version into the current draft slot                                                                                                                                                             |
-| `relevance_trigger_agent`            | Send message to agent (returns conversation_id; pair with `relevance_poll_agent_result`). Defaults to draft when one exists.                                                                                         |
-| `relevance_poll_agent_result`        | Long-poll for agent run status and response (pair with `relevance_trigger_agent`)                                                                                                                                    |
-| `relevance_get_agent_tools`          | Get agent's tools with action_ids. Defaults to the draft when one exists; response includes `viewed_version`.                                                                                                        |
-| `relevance_get_agent_task_summary`   | Get task summary: status, messages, tool calls                                                                                                                                                                       |
-| `relevance_list_agent_tasks`         | List recent tasks for an agent                                                                                                                                                                                       |
-| `relevance_list_agent_task_messages` | List raw messages in an agent task                                                                                                                                                                                   |
-| `relevance_get_agent_task_metadata`  | Get task metadata: status, credits, runtime                                                                                                                                                                          |
-| `relevance_list_agent_triggers`      | List agent triggers                                                                                                                                                                                                  |
-| `relevance_create_trigger`           | Create trigger                                                                                                                                                                                                       |
-| `relevance_delete_trigger`           | Delete trigger                                                                                                                                                                                                       |
-| `relevance_list_oauth_accounts`      | List OAuth accounts for triggers                                                                                                                                                                                     |
-| `relevance_submit_feedback`          | Report a bug or suggest an improvement — call proactively after errors or friction                                                                                                                                   |
+| Tool                                   | Description                                                                                                                                                                                                          |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `relevance_list_agents`                | List all agents (supports search)                                                                                                                                                                                    |
+| `relevance_get_agent`                  | Get agent config. Defaults to the unpublished draft when one exists; pass `version: "active"` to inspect live. Response includes `viewed_version`, `active_version_id`, `draft_version_id`, `has_unpublished_draft`. |
+| `relevance_read_agent_system_prompt`   | Read a large `system_prompt` in a line-numbered window (`offset_line`/`limit_lines`, `limit_lines: 0` for size only) without loading the whole prompt                                                                |
+| `relevance_search_agent_system_prompt` | Grep a `system_prompt` (`pattern` is a JS regex); returns matching line numbers + context                                                                                                                            |
+| `relevance_edit_agent_system_prompt`   | Edit a `system_prompt` by verbatim, unique string replacement (saves to DRAFT) — no need to resend the whole prompt                                                                                                  |
+| `relevance_create_agent`               | Create a NEW agent — saves to DRAFT only; call `relevance_publish_agent` to make it live                                                                                                                             |
+| `relevance_update_agent`               | Update an existing agent — partial-merge, saves to DRAFT only                                                                                                                                                        |
+| `relevance_attach_tools_to_agent`      | Attach tools to an agent — saves to DRAFT only                                                                                                                                                                       |
+| `relevance_update_agent_action`        | Update per-tool config (action_behaviour, prompt_description, default_values, overrides, etc.) on a single attached tool — saves to DRAFT only                                                                       |
+| `relevance_detach_tools_from_agent`    | Remove one or more attached tools from an agent — saves to DRAFT only                                                                                                                                                |
+| `relevance_publish_agent`              | Publish the current draft to live. Always shows an approval card.                                                                                                                                                    |
+| `relevance_list_agent_versions`        | List version history for an agent                                                                                                                                                                                    |
+| `relevance_get_agent_version`          | Get a specific historical version's config                                                                                                                                                                           |
+| `relevance_restore_agent_version`      | Duplicate a previous version into the current draft slot                                                                                                                                                             |
+| `relevance_trigger_agent`              | Send message to agent (returns conversation_id; pair with `relevance_poll_agent_result`). Defaults to draft when one exists.                                                                                         |
+| `relevance_poll_agent_result`          | Long-poll for agent run status and response (pair with `relevance_trigger_agent`)                                                                                                                                    |
+| `relevance_get_agent_tools`            | Get agent's tools with action_ids. Defaults to the draft when one exists; response includes `viewed_version`.                                                                                                        |
+| `relevance_get_agent_task_summary`     | Get task summary: status, messages, tool calls                                                                                                                                                                       |
+| `relevance_list_agent_tasks`           | List recent tasks for an agent                                                                                                                                                                                       |
+| `relevance_list_agent_task_messages`   | List raw messages in an agent task                                                                                                                                                                                   |
+| `relevance_get_agent_task_metadata`    | Get task metadata: status, credits, runtime                                                                                                                                                                          |
+| `relevance_list_agent_triggers`        | List agent triggers                                                                                                                                                                                                  |
+| `relevance_create_trigger`             | Create trigger                                                                                                                                                                                                       |
+| `relevance_delete_trigger`             | Delete trigger                                                                                                                                                                                                       |
+| `relevance_list_oauth_accounts`        | List OAuth accounts for triggers                                                                                                                                                                                     |
+| `relevance_submit_feedback`            | Report a bug or suggest an improvement — call proactively after errors or friction                                                                                                                                   |
 
 ## Resource URLs
 
@@ -64,17 +67,17 @@ The URL is already constructed with the correct region and project ID — just p
 
 ### Draft-First Editing — Publish Is Always Explicit
 
-The MCP tools mirror the builder app's draft / publish split. **Every edit saves to a draft. Publishing is always a separate, user-confirmed step.**
+Edits save to a draft until you publish. **Every edit saves to a draft. Publishing is always a separate, user-confirmed step.**
 
 - **Creating a new agent** (`relevance_create_agent`): saves to a DRAFT. The new agent has a `draft_version_id` and no `active_version_id` until you call `relevance_publish_agent`. `relevance_trigger_agent` defaults to draft, so the agent is testable as soon as creation returns.
 - **Updating an existing agent** (`relevance_update_agent` or `relevance_attach_tools_to_agent`): saves to a DRAFT. The previously-published "live" version remains untouched until you explicitly publish. `relevance_update_agent` deep-merges your patch into the current draft, so you only need to send the fields you want to change.
-- **Going live**: call `relevance_publish_agent`. This always shows an approval card to the user — even when auto-approve is on. Do not call publish without first asking the user "want me to publish this?" in chat.
+- **Going live**: call `relevance_publish_agent`. This always shows an approval card to the user — even when auto-approve is on. Do not call publish without first asking the user "want me to publish this?" in chat. Always pass a concise `version_description` (and `version_name`) — a clear, one-line summary of what changed and why, easy to understand, so version history is a useful trail. Reuse the summary you gave the user; never leave it blank.
 - **Testing the draft**: `relevance_trigger_agent` (and `_sync`) defaults to the draft when one exists, so you can run the in-progress version without affecting production. The response includes `triggered_version` so you can tell the user which version actually ran.
 - **Restoring a previous version**: `relevance_list_agent_versions` to find the version_id, `relevance_get_agent_version` to inspect it, then `relevance_restore_agent_version` to bring it back as a fresh draft (followed by `relevance_publish_agent` to make it live).
 
 #### Reading an agent while a draft exists
 
-`relevance_get_agent` and `relevance_get_agent_tools` default to the unpublished draft when one exists, mirroring the builder app — so the LLM and the user are looking at the same thing. The response's `viewed_version` field tells you what you read (`"draft"`, `"active"`, or a specific `version_id`), alongside `active_version_id`, `draft_version_id`, and `has_unpublished_draft`.
+`relevance_get_agent` and `relevance_get_agent_tools` default to the unpublished draft when one exists — so the LLM and the user are looking at the same thing. The response's `viewed_version` field tells you what you read (`"draft"`, `"active"`, or a specific `version_id`), alongside `active_version_id`, `draft_version_id`, and `has_unpublished_draft`.
 
 **When `viewed_version` is `"draft"`, say so to the user explicitly** — e.g. "I'm looking at the unpublished draft — there are unsaved changes here that aren't live yet." This matters because anything you propose is rooted in the draft, not the live config; the user needs to know the baseline before approving edits or asking you to publish.
 
@@ -129,8 +132,6 @@ Pass 2: Fetch real action IDs → Update prompt with pills   (saved to draft)
 ```
 
 **Why?** Action IDs are deterministic hex strings derived from action config — they don't exist until tools are attached. After the first draft save, call `relevance_get_agent_tools` (with `version: "draft"`) to read the real `action_id` for each attached tool, or use the `action_id_map` returned by `relevance_attach_tools_to_agent`. Then call `relevance_update_agent` with a system_prompt patch that inserts those IDs inline. Both passes save to draft — publish only after the user has reviewed and confirmed.
-
-The `## Tool References` block that `relevance_attach_tools_to_agent` auto-appends to the system_prompt stays — it's reference data and a fallback for any tool you don't reference inline. Weaving pills into the prose ABOVE the block is what gives the LLM strong inline tool-selection cues.
 
 See [creating.md - Action IDs](creating.md#action-ids-vs-studio-ids) for full workflow with code examples.
 

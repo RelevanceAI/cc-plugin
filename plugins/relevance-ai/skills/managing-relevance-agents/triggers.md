@@ -7,6 +7,8 @@ description: Configure event-driven and scheduled triggers (webhooks, email, Sla
 
 Configure agents to respond to external events.
 
+> **Building a workforce instead?** Triggers attached to a **workforce** (multi-agent graph) use a slightly different (nested) config shape and live on the workforce's trigger node, not on an agent. See [`../managing-relevance-workforces/workforce-triggers.md`](../managing-relevance-workforces/workforce-triggers.md). Same vendors, two attachment points — pick whichever matches the entity that owns the run.
+
 ## Choosing the Right Trigger Pattern
 
 Triggers **feed the agent's unit of action** — delivering work so the agent can act on it. The two main patterns are **event-driven** (react when something happens) and **scheduled** (run on a timer). Both are valid — the right choice depends on your data source and what the agent does.
@@ -178,6 +180,18 @@ relevance_create_trigger({
 });
 ```
 
+### Enable / Disable Trigger
+
+```typescript
+relevance_update_trigger_status({
+  agent_id: '...',
+  trigger_id: 'trigger-doc-id', // document_id from relevance_list_agent_triggers
+  status: 'paused', // 'in_progress' = enable/resume, 'paused' = disable
+});
+```
+
+To turn a trigger off (or back on), **pause/resume it — don't delete and recreate it**. New triggers are enabled by default.
+
 ### Delete Trigger
 
 ```typescript
@@ -316,16 +330,19 @@ relevance_create_trigger({
 Schedule agents to run automatically at specified intervals.
 
 **Frequency Options:**
-| Frequency | Required Fields | Description |
-|-----------|-----------------|-------------|
-| `minutely` | `minute_interval` | Every N minutes (min: 10) |
-| `hourly` | `hour_interval` | Every N hours |
-| `daily` | `hour` | Once per day |
-| `weekly` | `hour`, `day_of_week` | Once per week |
-| `monthly` | `hour`, `day_of_month` | Once per month |
-| `annually` | `hour`, `day_of_month`, `month` | Once per year |
-| `no_repeat` | `hour`, `date` | One-time execution |
-| `custom_cron` | `cron_expression` | AWS EventBridge cron |
+
+Every frequency except `custom_cron` requires `hour` (HH:mm) **and** `timezone` (IANA string) — yes, even `minutely` and `hourly`. A schedule missing a required field is rejected with a 400 before it is saved.
+
+| Frequency     | Required Fields                             | Description                                                                                                   |
+| ------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `minutely`    | `hour`, `timezone`, `minute_interval`       | Every N minutes (min: 10)                                                                                     |
+| `hourly`      | `hour`, `timezone`, `hour_interval`         | Every N hours (min: 1)                                                                                        |
+| `daily`       | `hour`, `timezone`                          | Once per day                                                                                                  |
+| `weekly`      | `hour`, `timezone`, `day_of_week`           | Once per week                                                                                                 |
+| `monthly`     | `hour`, `timezone`, `day_of_month`          | Once per month (`day_of_month`: 1-31 or `'last_day'`)                                                         |
+| `annually`    | `hour`, `timezone`, `day_of_month`, `month` | Once per year                                                                                                 |
+| `no_repeat`   | `hour`, `timezone`, `date`                  | One-time execution (`date`: YYYY-MM-DD, must be in the future)                                                |
+| `custom_cron` | `cron_expression`                           | 6-field cron expression (minute intervals min 10). `hour` not required; `timezone` optional (defaults to UTC) |
 
 **Example: Every 15 minutes**
 
@@ -383,7 +400,7 @@ relevance_create_trigger({
 });
 ```
 
-**Example: Custom cron (AWS EventBridge format)**
+**Example: Custom cron**
 
 ```typescript
 relevance_create_trigger({
@@ -395,8 +412,6 @@ relevance_create_trigger({
     schedule: {
       frequency: 'custom_cron',
       cron_expression: '0 9 ? * MON-FRI *', // 9am Mon-Fri
-      hour: '09:00',
-      timezone: 'UTC',
     },
   },
 });

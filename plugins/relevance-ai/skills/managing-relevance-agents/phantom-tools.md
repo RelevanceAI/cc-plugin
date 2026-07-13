@@ -1,6 +1,6 @@
 ---
 title: Phantom Tools
-description: Reference for the 15 system-injected tools (thinking, memory, escalation, Python executor, remote MCP, etc.) that are enabled via agent settings and must never be written into the `actions` array. Load when these tools appear in errors or when enabling agent capabilities.
+description: Reference for the 14 system-injected tools (thinking, memory, escalation, Python executor, remote MCP, etc.) that are enabled via agent settings and must never be written into the `actions` array. Load when these tools appear in errors or when enabling agent capabilities.
 ---
 
 # Phantom Tools
@@ -40,7 +40,7 @@ remote_mcp_configs: [...]            →   mcp_remote_tool_call
 
 When `relevance_get_agent_tools` returns tools, phantom tools are included with `is_phantom_tool: true`. But they should **never** be written back to the agent's `actions` array via `relevance_update_agent` or `relevance_attach_tools_to_agent`.
 
-## Complete Reference: All 15 Phantom Tools
+## Complete Reference: All 14 Phantom Tools
 
 ### Thinking Tool
 
@@ -75,7 +75,7 @@ Enable via `relevance_update_agent` with `patch: { memory: { enabled: true, memo
 | **Purpose**       | Tag conversations with predefined labels for organization/routing |
 | **How to enable** | Set `tags: ["support", "billing", "sales"]` on the agent config   |
 
-`tags` is blocked from MCP modification — set it via the Relevance AI dashboard. See the **Blocked Fields** section below for why.
+`tags` is blocked from modification via the tools — set it via the Relevance AI dashboard. See the **Blocked Fields** section below for why.
 
 ### Conversation Metadata Tools
 
@@ -106,7 +106,7 @@ Enable via `relevance_update_agent` with `patch: { is_scheduled_triggers_enabled
 | **Purpose**       | Escalate conversations to human managers via email or Slack notifications                        |
 | **How to enable** | Set `escalations: { email: { emails: [...] } }` or `escalations: { slack: { channels: [...] } }` |
 
-`escalations` is blocked from MCP modification — set it via the Relevance AI dashboard. See the **Blocked Fields** section below for why.
+`escalations` is blocked from modification via the tools — set it via the Relevance AI dashboard. See the **Blocked Fields** section below for why.
 
 ### Python Executor Tool
 
@@ -135,14 +135,6 @@ Enable via `relevance_update_agent` with `patch: { is_scheduled_triggers_enabled
 | **Purpose**       | Query the agent's knowledge base (RAG)             |
 | **How to enable** | Link knowledge sets to the agent via the UI or API |
 
-### Get Current Date Tool
-
-| Field          | Value                                                    |
-| -------------- | -------------------------------------------------------- |
-| **ID**         | `get_current_date`                                       |
-| **Enabled by** | Automatically available for certain agent configurations |
-| **Purpose**    | Provide the agent with the current date and time         |
-
 ### System-Internal Tools
 
 These are managed by the platform and not typically configured directly:
@@ -157,18 +149,18 @@ These are managed by the platform and not typically configured directly:
 When processing agent tool data, use these methods (in order of reliability):
 
 1. **`is_phantom_tool: true` flag** — Set on all phantom tools in the `GetAgentTools` API response. Most reliable.
-2. **Known IDs** — Match `chain_id` or `studio_id` against the 15 IDs listed above.
+2. **Known IDs** — Match `chain_id` or `studio_id` against the 14 IDs listed above.
 3. **`transformations` field** — Phantom tools have a `transformations` property; regular action configs do not.
 
 ## Gotchas and Common Mistakes
 
 ### Phantom Tools Are Auto-Stripped on Save
 
-The MCP layer automatically strips phantom tools before saving (whether you go through `relevance_update_agent` or `relevance_attach_tools_to_agent`). When constructing an `actions` array yourself, always source it from `relevance_get_agent` (already clean) — never from `relevance_get_agent_tools` (includes phantom tools).
+The platform automatically strips phantom tools before saving (whether you go through `relevance_update_agent` or `relevance_attach_tools_to_agent`). When constructing an `actions` array yourself, always source it from `relevance_get_agent` (already clean) — never from `relevance_get_agent_tools` (includes phantom tools).
 
 ### Enable Features via Settings, Not Actions
 
-To give an agent capabilities like memory or thinking, set the feature flag with `relevance_update_agent` (e.g. `patch: { thinking_tool: { enabled: true } }`). The MCP injects the phantom tool automatically. Don't add phantom tools to the `actions` array — it corrupts the agent and `relevance_update_agent` will reject the array anyway because the array-replacement semantics would also wipe other attached tools.
+To give an agent capabilities like memory or thinking, set the feature flag with `relevance_update_agent` (e.g. `patch: { thinking_tool: { enabled: true } }`). The platform injects the phantom tool automatically. Don't add phantom tools to the `actions` array — it corrupts the agent and `relevance_update_agent` will reject the array anyway because the array-replacement semantics would also wipe other attached tools.
 
 ### Cloned Agents May Be Pre-Tainted
 
@@ -178,7 +170,7 @@ If an agent was published to the marketplace with phantom tools already leaked i
 
 A common mistake when cleaning actions is deleting `params_schema`. This field IS valid on action configs and is used for tool input schemas. Don't remove it.
 
-### Blocked Fields in MCP Plugin
+### Blocked Fields
 
 The following agent config fields are **blocked from modification** via `relevance_update_agent` and `relevance_create_agent` because they control phantom tool injection and can cause hard-to-reverse damage if set incorrectly:
 

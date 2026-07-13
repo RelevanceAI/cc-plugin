@@ -89,7 +89,7 @@ Step N: API call        Step 0: Agent/Trigger
 
 **Cause:** Phantom tools (e.g., `thinking_tool`, `add_agent_memory`) leaked into the agent's `actions` array, bringing invalid fields like `studio_id`, `transformations`, `action_config`.
 
-**Fix:** Re-save the agent using `relevance_update_agent` (passing any small change to trigger a save) or `relevance_attach_tools_to_agent` — the MCP automatically strips phantom tools on save. See [phantom-tools.md](phantom-tools.md) for details.
+**Fix:** Re-save the agent using `relevance_update_agent` (passing any small change to trigger a save) or `relevance_attach_tools_to_agent` — the platform automatically strips phantom tools on save. See [phantom-tools.md](phantom-tools.md) for details.
 
 ### Agent Cloning Fails (Missing Fields)
 
@@ -123,6 +123,8 @@ Step N: API call        Step 0: Agent/Trigger
 | Wrong account ID         | Verify `oauth_account_id` matches |
 | Missing provider_user_id | Add for Unipile triggers          |
 | Agent not published      | Publish the agent                 |
+
+When the root cause is a missing or wrong OAuth account (or a missing API key), don't just tell the user to "reconnect the account" in prose — give them the **clickable connect link** if your harness provides one. Call `relevance_check_tool_integration_requirements({ tool_ids: [...], agent_id })` and surface the per-provider `setup_url` it returns. Load the `managing-relevance-tools/integration-setup` skill for the full flow.
 
 ### LinkedIn Trigger Not Responding
 
@@ -161,7 +163,7 @@ Step N: API call        Step 0: Agent/Trigger
 **Fix:**
 
 1. Go to the conversation URL returned in the response to approve/reject the pending tool call
-2. For automated/MCP use, call `relevance_update_agent` to change the tool's `action_behaviour` to `"never-ask"`
+2. For automated use, call `relevance_update_agent` to change the tool's `action_behaviour` to `"never-ask"`
 
 ### Duplicate Tasks Created
 
@@ -293,6 +295,7 @@ const transform = await relevance_get_transformation({
 3. Test tools independently with `relevance_run_tool`
 4. Review OAuth with `relevance_list_oauth_accounts`
 5. Check transformation schemas with `relevance_get_transformation`
+6. When the failure is a missing/wrong account or key, call `relevance_check_tool_integration_requirements` and give the user the returned `setup_url` as a clickable link — never paraphrase the Integrations navigation in prose
 
 ## Reporting Issues
 

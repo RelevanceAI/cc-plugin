@@ -9,14 +9,16 @@ Build and manage AI agents, tools, and workforces on [Relevance AI](https://rele
 claude plugin marketplace add RelevanceAI/cc-plugin
 
 # Install the plugin
-claude plugin install relevance-ai@relevance-ai-plugins
+claude plugin install relevance-ai@cc-plugin
 ```
 
 Or from inside Claude Code:
 ```
 /plugin marketplace add RelevanceAI/cc-plugin
-/plugin install relevance-ai@relevance-ai-plugins
+/plugin install relevance-ai@cc-plugin
 ```
+
+The marketplace must be added first — the `@cc-plugin` suffix only resolves once it's registered.
 
 ## What's included
 
@@ -40,16 +42,14 @@ Or from inside Claude Code:
 
 ## Setup
 
-After installing, you need to authenticate with Relevance AI:
+No setup needed — authentication happens on first use. Just ask Claude to do something with
+Relevance AI (e.g. "list my agents"). The first tool call opens your browser to log in, and
+from then on you're authenticated. This is a one-time flow.
 
-1. Run `/mcp` in Claude Code
-2. Select the `relevance-ai` server
-3. Click **Authenticate** — this opens your browser to log in
-4. Once authenticated, MCP tools are available immediately
-
-This is a one-time setup.
+If the browser doesn't open, run `/mcp`, select the `relevance-ai` server, and authenticate
+from there. Restarting Claude Code also helps.
 
 ## Requirements
 
-- Claude Code v1.0.33+
+- Claude Code v2.0+
 - A [Relevance AI](https://relevanceai.com) account

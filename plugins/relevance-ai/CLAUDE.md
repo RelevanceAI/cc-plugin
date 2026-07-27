@@ -16,7 +16,7 @@ If the user says auth isn't working, tell them to:
 
 1. Run `/mcp` in Claude Code to check server status
 2. Restart Claude Code and try again
-3. Verify they're on Claude Code v1.0.33+
+3. Verify they're on Claude Code v2.0+
 
 ## Claude Code Workflow
 

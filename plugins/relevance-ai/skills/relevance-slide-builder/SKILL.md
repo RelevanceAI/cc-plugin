@@ -75,16 +75,39 @@ const kit = await relevance_api_request({
 
 ### Update Brand Kit
 
-Partial update — only provided fields are changed.
+**CRITICAL: PUT has destructive semantics for array fields.** Any array you omit from the body (`colors`, `logos`, `inspiration_photos`) is wiped to `[]`. Scalar fields (`name`, `brand_tone`, `voice`, font objects) are preserved if omitted — it is only arrays that get reset.
+
+**Always fetch-merge-save** when updating a brand kit:
 
 ```typescript
+// 1. GET the full brand kit
+const existing = await relevance_api_request({
+  endpoint: `/branding_kit/${brandingKitId}`,
+  method: 'GET',
+});
+
+// 2. Merge your changes into the COMPLETE object
+const updated = {
+  ...existing,
+  brand_tone: 'Friendly and approachable',
+};
+
+// 3. PUT the full object (arrays included)
 await relevance_api_request({
   endpoint: `/branding_kits/${brandingKitId}`,
   method: 'PUT',
-  body: {
-    name: 'Updated Brand',
-    brand_tone: 'Friendly and approachable',
-  },
+  body: updated,
+});
+```
+
+Do NOT issue a partial PUT — `colors`, `logos`, and `inspiration_photos` will be wiped:
+
+```typescript
+// BAD: wipes all arrays
+await relevance_api_request({
+  endpoint: `/branding_kits/${brandingKitId}`,
+  method: 'PUT',
+  body: { brand_tone: 'new tone' },
 });
 ```
 
@@ -300,14 +323,16 @@ const { success } = await relevance_api_request({
 
 ### Brand Kit Endpoints
 
-| Method   | Endpoint                          | Description                         |
-| -------- | --------------------------------- | ----------------------------------- |
-| `GET`    | `/branding_kits`                  | List all brand kits                 |
-| `POST`   | `/branding_kits`                  | Create brand kit                    |
-| `GET`    | `/branding_kit/:branding_kit_id`  | Get brand kit                       |
-| `PUT`    | `/branding_kits/:branding_kit_id` | Update brand kit                    |
-| `DELETE` | `/branding_kits/:branding_kit_id` | Delete brand kit                    |
-| `POST`   | `/branding_kits/generate`         | Generate brand kit from images (AI) |
+| Method   | Endpoint                          | Description                                      |
+| -------- | --------------------------------- | ------------------------------------------------ |
+| `GET`    | `/branding_kits`                  | List all brand kits                              |
+| `POST`   | `/branding_kits`                  | Create brand kit                                 |
+| `GET`    | `/branding_kit/:branding_kit_id`  | Get brand kit (note: singular `branding_kit`)    |
+| `PUT`    | `/branding_kits/:branding_kit_id` | Update brand kit (destructive — see above)       |
+| `DELETE` | `/branding_kits/:branding_kit_id` | Delete brand kit                                 |
+| `POST`   | `/branding_kits/generate`         | Generate brand kit from images (AI)              |
+
+**Endpoint naming inconsistency:** `GET` uses singular `/branding_kit/{id}`, `PUT`/`DELETE` use plural `/branding_kits/{id}`. Both are correct — do not "fix" one to match the other.
 
 ### Slideshow Endpoints
 

@@ -1,6 +1,6 @@
 ---
 name: relevance-evals
-description: Manages evaluations and monitoring for agents and workforces (multi-agent systems) in Relevance AI — creating test cases, defining checks, configuring tool simulations, running evaluations, analysing results, and setting up performance dashboards that monitor production traffic. Use when testing agent or workforce behaviour, setting up automated testing, reviewing eval results, or monitoring production agents for failures.
+description: Manages evaluations and monitoring for agents and workforces (multi-agent systems) in Relevance AI — creating test cases, defining checks, configuring tool simulations, running evaluations, analysing results, setting up performance dashboards that monitor production traffic, and configuring alerts that notify when quality degrades. Use when testing agent or workforce behaviour, setting up automated testing, reviewing eval results, monitoring production agents for failures, or setting up alerts and notification channels for regressions.
 ---
 
 # Evals & Monitoring Skill
@@ -59,17 +59,24 @@ Two things follow from checks being shared:
 3. Each sampled conversation is scored against the dashboard's checks by the LLM judge.
 4. Scores feed the timeseries chart and the per-test table — surfaced via `relevance_get_performance_dashboard_timeseries` and `relevance_list_performance_dashboard_runs`.
 
-### Publish gate (eval-on-publish)
+### Pre-publish checks (publish gate / "Test and Publish")
 
-Test sets can be linked to an agent as a **publish gate** from the agent's **Evaluate tab → Publish section**. When configured, publishing a new draft requires linked test sets to meet a minimum pass rate before the draft can be promoted to active. This is the native "block publish unless evals pass" mechanism.
+An agent or workforce can have **one pre-publish check config**: 1–10 test sets, each with a `threshold_score` (minimum pass rate, 0–100) and a `block_on_failure` flag. When a config exists, `relevance_publish_agent` / `relevance_publish_workforce` run every configured test set against the current draft instead of publishing directly, and **automatically publish the draft to live when every blocking test set meets its threshold** — there is no separate publish step afterwards. A below-threshold non-blocking test set is reported but never blocks. This is the native "block bad changes from going live" mechanism.
 
-**Surface this proactively** whenever a user asks any of:
+Workflow:
 
-- "How do I run evals automatically on agent changes?"
-- "Can I gate publishes on tests?"
-- "How do I block bad agent changes from going live?"
+1. `relevance_get_pre_publish_status` — read the current config (if any) and recent check runs.
+2. If no config exists, build test sets + scenarios first (see the Pre-Deploy Workflow), then `relevance_upsert_pre_publish_config` with the complete test-set list.
+3. Publish as normal (`relevance_publish_agent` / `relevance_publish_workforce`) — the gate runs automatically and the response includes a `check_id`. Pass a concise `version_name` and `version_description` so a successful publish leaves a useful version-history trail. `skip_checks: true` bypasses the gate — only pass it when the user explicitly asks to publish without running the checks.
+4. `relevance_poll_pre_publish_check` with the returned `check_id` (long-polls ~50s per call; re-call until `is_terminal` is true).
+5. Report the `outcome` and per-test-set scores, and state clearly whether the draft was published.
 
-The answer is: open the agent's **Evaluate tab**, scroll to the **Publish section**, link the test sets, set the minimum pass rate, and the platform enforces it on every publish.
+Failure modes:
+
+- **"already running" (409)**: a check is already in flight for this resource — don't re-publish; find its `check_id` with `relevance_get_pre_publish_status` and poll it.
+- **"draft version changed" (409)**: the draft was saved again between that save and the trigger — re-publish from the latest draft.
+
+**Surface this proactively** whenever a user asks how to gate publishes on tests (e.g. "how do I block bad agent changes from going live?"). The answer is: turn the resource's test sets into pre-publish checks with `relevance_upsert_pre_publish_config` — every publish then enforces the gate automatically.
 
 ## Eval & Dashboard URLs
 
@@ -189,6 +196,17 @@ Mirror of the test-case surface — attach/detach checks on a dashboard (**not**
 | `relevance_add_performance_dashboard_rule`    | Attach existing checks to a dashboard by `check_id` (`check_ids`); fails if it would exceed 10    |
 | `relevance_remove_performance_dashboard_rule` | Detach a check from a dashboard by `check_id` — unlinks here only; a dashboard must keep ≥1 check |
 
+### Pre-Publish Check Tools (publish gate)
+
+See [Pre-publish checks](#pre-publish-checks-publish-gate--test-and-publish) for the workflow and failure modes. The gate itself runs through the plain publish tools (`relevance_publish_agent` / `relevance_publish_workforce`), which trigger the checks automatically when a config exists and return a `check_id`.
+
+| Tool                                  | Description                                                                                                                                             |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `relevance_get_pre_publish_status`    | The publish-gate config (or `config: null`) plus recent check runs with per-test-set scores and publish outcomes                                        |
+| `relevance_upsert_pre_publish_config` | Create or replace the gate: 1–10 test sets, each with `threshold_score` + `block_on_failure`. **Full replace**                                          |
+| `relevance_delete_pre_publish_config` | Remove the gate — publishes are no longer checked afterwards                                                                                            |
+| `relevance_poll_pre_publish_check`    | Long-poll a check by `check_id` (returned by a gated publish) until `is_terminal`; terminal responses include an `outcome` stating whether it published |
+
 ### Patch Semantics (Important)
 
 The update tools (`relevance_update_eval_test_case`, `relevance_update_eval_test_set`, `relevance_update_performance_dashboard`) use **patch semantics**: omitted fields are preserved. Checks are managed separately — attach/detach with the per-surface tools, edit the check itself with `relevance_update_eval_check`.
@@ -238,7 +256,7 @@ relevance_list_eval_test_sets(resource_type, resource_id)
 
 ### Step 2: Create Test Cases with Checks
 
-Get the `check_id`s first (reuse or create — see [Checks are a reusable library](#checks-are-a-reusable-library-reference-them-by-id)), then call `relevance_create_eval_test_case` with those `check_ids` and the (required) `test_set_id`.
+Get the `check_id`s first (reuse or create — see [Checks are a reusable library](#checks-are-a-reusable-library-reference-them-by-id)). Before creating new checks, follow [Runbook: Authoring checks](#runbook-authoring-checks-ground--interview). Then call `relevance_create_eval_test_case` with those `check_ids` and the (required) `test_set_id`.
 
 > **🛑 Before running, simulate side-effecting tools.** Default rule: **if a tool connects to an external service or modifies data, simulate it** (only leave read-only / pure-compute tools live). Set `tool_simulation_config` on the test set — **default ON, unless the user asks for a live run** — so the eval doesn't fire real actions (real webhooks, emails, writes). Simulated calls still count for `tool_usage` checks. See [Tool Simulation Config](#tool-simulation-config).
 
@@ -257,10 +275,13 @@ A one-line "what this checks" description without these two parts is not approva
 
 **`max_turns`** (default: 10, range: 1–50) — Controls how many back-and-forth exchanges happen before evaluation.
 
-**Exact first message** — When the user asks to pin the opening line ("start by saying X"), append it to the persona using this **exact** delimiter so the app can round-trip it: `<persona>\n\nStart by saying: <message>`. The format is strict (two newlines, capital `S`, trailing colon-space).
+**`first_message`** — When the user asks to pin the opening line ("start by saying X"), put it here instead of writing it into `prompt`. It is sent to the agent verbatim as the opening message.
 
 ```
-"You are an impatient customer.\n\nStart by saying: I need help with my order #12345"
+scenario: {
+  prompt: "You are an impatient customer.",
+  first_message: "I need help with my order #12345"
+}
 ```
 
 **`runs_per_scenario`** (default: 1, range: 1–10) — Run the same scenario multiple times to test consistency. AI responses vary — 3–5 catches flaky behavior.
@@ -325,7 +346,8 @@ relevance_create_eval_test_case(
   test_set_id: "<test_set_id>",
   name: "Data enrichment task",
   scenario: {
-    prompt: "You need company data for a sales report.\n\nStart by saying: Enrich the company profile for Acme Corp",
+    prompt: "You need company data for a sales report.",
+    first_message: "Enrich the company profile for Acme Corp",
     max_turns: 1
   },
   check_ids: ["<check_calls_enrichment>", "<check_structured_data>"]
@@ -415,7 +437,7 @@ relevance_run_evaluation(
 )
 ```
 
-> **Version pinning:** Omit `version_id` to evaluate the active (published) version — it's resolved automatically. Pass `version_id` to evaluate a specific past/draft version. For **workforces** this is **topology-only**: it pins the graph wiring of that version, but nested agents/tools still run their latest version (full historical reproduction isn't supported).
+> **Version pinning:** Omit `version_id` to evaluate the active (published) version — it's resolved automatically. Pass `version_id` to evaluate a specific past/draft version; to evaluate the **current draft**, skip the version list and pass the `draft_version_id` from the resource's get-tool summary. For **workforces** this is **topology-only**: it pins the graph wiring of that version, but nested agents/tools still run their latest version (full historical reproduction isn't supported).
 
 ### Step 4: Poll & Read Results
 
@@ -438,6 +460,25 @@ The summary response includes: `{ status, tasks_evaluated, total_runs, completed
 3. Present results in a clear table: scenario name, pass/fail per check, and the LLM judge's reasoning for any failures.
 
 For a **workforce**, a node-scoped `tool_usage` check (one created with a `node_id`) is scored only against that node's conversation(s), so its `rule_results` entry is attributable to that node — name the checks accordingly (e.g. "Summarizer searched the web") so the table makes clear which node each tool/sub-agent assertion covers.
+
+---
+
+## Runbook: Verifying a fix
+
+After editing an agent or workforce to fix a diagnosed failure, verify the draft before reporting the fix as done:
+
+1. **Capture the draft id.** Re-fetch the resource; its summary carries `draft_version_id` — the version your edit lives on. An eval run without it evaluates the live, unfixed version.
+2. **Find real coverage.** List test sets and their scenarios. Don't branch on the `quality.has_evals` flag alone — it is also true when only orphan checks or empty test sets exist.
+3. **Pick the smallest run.** Prefer the specific `scenario_ids` that exercise the diagnosed failure over a whole test set — evals cost credits.
+4. **No coverage? Create it, then run.** Order matters: check (`relevance_create_eval_check`) → test set → scenario (`relevance_create_eval_test_case` requires `test_set_id` + `check_ids`). Base the scenario on the failing task's input, stripped of secrets and personal data.
+5. **Confirm side-effecting tools are simulated** (the simulation default above) before running.
+6. **Run pinned to the draft** — `relevance_run_evaluation(..., scenario_ids, version_id: <draft_version_id>)` — share the returned URL, and poll to terminal. If the run outlasts the conversation turn, share the URL, say it's still running, and (if your harness can schedule a future message) offer a check-back.
+7. **Classify the outcome — three ways, not two.**
+   - Checks failed → the fix is **not confirmed**: report failures-first and iterate.
+   - Run errored (credits, timeout, judge/platform failure) → verification is **inconclusive** — never report the fix as verified.
+   - All relevant checks passed → confirm the current `draft_version_id` still matches the one you evaluated (an edit mid-run invalidates the result), then report verified.
+
+Caveats: workforce `version_id` pins topology only — nested agents run their latest version, so verify a nested-agent fix through that agent's own evals. Tools have no evals; verify a tool fix with a draft tool run along the failing path.
 
 ---
 
@@ -521,7 +562,7 @@ To create or edit the checks themselves, use the [check library](#checks-are-a-r
 
 When the user asks "what's failing in production?" / "monitor my recent failures" / "any regressions" / "how's my agent doing":
 
-1. `relevance_list_performance_dashboards(resource_type, resource_id)` — if none exist, offer to set one up. Otherwise pick the enabled dashboard(s).
+1. `relevance_list_performance_dashboards(resource_type, resource_id)` — if none exist, offer to set one up. Otherwise pick the enabled dashboard(s). (If you already fetched the agent/workforce, its `quality` block — `has_performance_dashboard`, `performance_dashboard_active` — already tells you whether monitoring exists, so you can decide whether to offer setup without this call; you still need the list to pick _which_ enabled dashboard to pull runs from.)
 2. For each dashboard, list recent failed runs in **one call**:
    ```
    relevance_list_performance_dashboard_runs(
@@ -537,9 +578,28 @@ When the user asks "what's failing in production?" / "monitor my recent failures
 4. Summarise crisply: sample window, the dominant failing check(s), and the dominant failure reason.
 5. Suggest next steps: tighten the system prompt, attach a missing tool, or turn the failure into a regression test by adding a scenario (`relevance_create_eval_test_case`) that exercises the same case.
 
-### Recommend a periodic check-up
+### Recommend a periodic check-up (only when unmonitored)
 
-A dashboard only helps if someone looks at it. For a production agent, recommend re-checking on a cadence so regressions surface early rather than in front of end users — a good default is roughly weekly for low-traffic agents and more often for high-traffic ones. If your harness can schedule a future check (a wake-up message or reminder), offer to schedule the re-check and run this runbook then; if it can't, tell the user when to come back and what to look at. The scheduling and notification mechanics themselves are harness-specific — this skill only recommends the check-up and defines what to review.
+When a dashboard has an alert configured, degradation is reported automatically — no scheduled check-up is needed; don't offer one. Recommend a periodic re-check only for a resource with no monitoring/alerting yet, paired with the offer to set monitoring up: if your harness can schedule a future check (a wake-up message or reminder), offer to schedule it and run this runbook then; if it can't, tell the user when to come back and what to look at. The scheduling and notification mechanics themselves are harness-specific — this skill only recommends the check-up and defines what to review.
+
+### Alerts — get told instead of remembering to look
+
+Alerts notify email, Slack, or Microsoft Teams when one dashboard check or its overall score degrades. They attach to agents or workforces, never individual tools. Offer one after setting up a dashboard; use the Relevance app UI if alert tools are unavailable.
+
+Before creating, list existing alerts and ask which channels to use. Never invent recipients or connection IDs. One channel entry per type; one email entry contains all recipients. A caller-scoped empty list does not prove no teammate created an alert.
+
+- Thresholds use fractions: `0.8` means 80%.
+- Results are bucketed; `2 of 3` breaching buckets is less noisy than `1 of 1`.
+- Low-traffic resources need a meaningful minimum sample size.
+- Use at least a 60-minute cooldown unless the user requests faster repeats.
+
+An alert is inert when its dashboard is not scoring live traffic or its rule does not belong to that dashboard. State is `ok`, `alarm`, or `insufficient_data`; the latter usually means too little traffic or too high a sample minimum. Only current state and latest timestamps are retained, not firing history.
+
+### Agent alerts (a separate thing from monitor alerts)
+
+Agent alerts cover operational events without a dashboard. Use `relevance_get_agent(summary: false)`, preserve every existing `notifications_config.notifications` entry, then call `relevance_update_agent({patch: {notifications_config}})` and publish normally. The list replaces wholesale.
+
+Each notification requires `id`, `enabled`, `trigger`, and `channels`. Supported trigger types are `status_change`, `tool_error`, `agent_error`, `agent_published`, and `agent_triggers_updated`. Preserve escalation-status notifications: removing one can strand human handoffs.
 
 ### When dashboards return no data
 
@@ -631,13 +691,25 @@ Tool simulation lets you override or simulate tool outputs during evaluation run
 
 Tool simulation config can be set at three levels:
 
-| Level              | Where it's set                                   | Applies to                                                                               | Overridden by              |
-| ------------------ | ------------------------------------------------ | ---------------------------------------------------------------------------------------- | -------------------------- |
-| **Test set level** | `tool_simulation_config` on the test set         | All scenarios in the test set                                                            | Scenario-level config      |
-| **Scenario level** | `tool_simulation_config` on the test case        | That specific scenario only                                                              | Nothing (highest priority) |
-| **Batch level**    | `tool_simulation_config` on the evaluate request | Ad-hoc runs with `scenario_ids` only (**returns 400** if `test_set_id` is also provided) | Scenario-level config      |
+| Level              | Where it's set                                   | Applies to                                                                               | Overridden by                           |
+| ------------------ | ------------------------------------------------ | ---------------------------------------------------------------------------------------- | --------------------------------------- |
+| **Test set level** | `tool_simulation_config` on the test set         | All scenarios in the test set                                                            | Scenario-level config                   |
+| **Scenario level** | `tool_simulation_config` on the test case        | That specific scenario only                                                              | Nothing (wins **per tool** — see below) |
+| **Batch level**    | `tool_simulation_config` on the evaluate request | Ad-hoc runs with `scenario_ids` only (**returns 400** if `test_set_id` is also provided) | Scenario-level config                   |
 
 These three levels decide **where** a config is attached. Orthogonally, **within** a workforce config, a per-node entry (`node_configs[node_id]`) always takes precedence over a legacy per-agent entry (`agent_configs[agent_id]`) for that node.
+
+**Levels merge per tool, not wholesale.** A scenario-level config wins only for the tools it names; every other tool still inherits the test-set config.
+
+#### Clearing an override
+
+Pass `null` as the `tool_simulation_config` to `relevance_set_eval_test_case_simulation_config` (test case) or `relevance_update_eval_test_set` (test set) to remove that level's config; the level then inherits from above. `null` is the only clear value — omitting the field keeps the stored config, and `{}` is rejected.
+
+Because levels merge per tool, clearing a test case's config restores the test set's simulation — it does not make tools run live. To pin one tool live while the test set simulates it, give it an explicit entry with `output_overrides_enabled: false` (not `simulate_output: { is_simulated: false }`, which does not disable simulation):
+
+```typescript
+{ tool_configs: { '<tool_action_id>': { overrides: { 'default': { output_overrides_enabled: false } } } } }
+```
 
 ### For Agents
 
@@ -652,7 +724,7 @@ These three levels decide **where** a config is attached. Orthogonally, **within
             simulate_output: {
               is_simulated: true,
               simulation_prompt: 'Describe what the tool should return...',
-              model: 'anthropic-claude-haiku-4-5',  // Optional, defaults to openai-gpt-4o-mini
+              model: 'relevance-cost-optimized',
             },
           },
         },
@@ -681,11 +753,21 @@ A workforce is a graph of **nodes**, and the same agent can appear in more than 
 **Discovering the ids** (do this before writing the config):
 
 1. `relevance_get_workforce` → the graph, with a `node_id` for every node.
-2. `relevance_get_agent_tools` with the node's `agent_id` + `workforce_context: { workforce_id, node_id }` → that node's **full** toolset: its directly-attached tools, graph-attached tools, **and** the sub-agents it can call. Each entry has an `action_id` and a `kind` of `"tool"` or `"sub_agent"`. Use those `action_id`s as the `tool_configs` keys (and as `tool_id` in [tool-usage checks](#check-types)).
+2. `relevance_get_agent_tools` with the node's `agent_id` + `workforce_context: { workforce_id, node_id }` → that node's **full** toolset: its directly-attached tools, graph-attached tools, **and** the sub-agents it can call. Each entry has an `action_id` and a `kind` of `"tool"`, `"sub_agent"` or `"mcp_tool"`. Use those `action_id`s as the `tool_configs` keys (and as `tool_id` in [tool-usage checks](#check-types)).
 
 > **Why per-node, not per-agent?** If the same agent runs in two nodes, `node_configs` lets each one simulate (or run live) independently. To simulate a **sub-agent's own** downstream tools, configure them under that sub-agent's node — discover them by calling `relevance_get_agent_tools` with that node's id.
 >
 > `agent_configs[agent_id]` is still accepted as a back-compat fallback (applied to a node only when it has no `node_configs` entry), but prefer `node_configs` for new workforces.
+
+---
+
+## Runbook: Authoring checks (ground → interview)
+
+Follow this whenever you create a check — or rewrite an existing one; a rewrite is re-authoring and goes through the same steps. Checks written one-shot from the resource's config alone are the main source of noisy monitoring later.
+
+**1. Ground before you author.** If the resource has real traffic, read it first: recent tasks/conversations, recent errors, and existing eval or dashboard results. Derive checks from what actually goes wrong. For a brand-new resource with no traffic, compile checks from the agreed success criteria and treat them as provisional until real runs exist.
+
+**2. Interview, briefly.** Ask at most 2–3 questions about unresolved business judgments in the user's use case, skipping anything the conversation has already answered. Ground each question in a concrete situation: a common task's required outcome, an ambiguity or policy boundary where several behaviors are reasonable, or the acceptable fallback when completion fails. Offer 2–4 plausible behaviors as choices — via structured choice prompts if your harness has them, otherwise in free text. Each answer should be specific enough to inform an observable pass/fail criterion; choose the check type only when drafting. Do not ask for facts you can read from the resource's configuration or recent runs. A skipped answer is an answer: proceed, state the assumption you made, and never argue the user back into the interview.
 
 ---
 
@@ -713,8 +795,8 @@ Checks are evaluated by an LLM judge (for `llm_judge` type) or by deterministic 
 | Type                | `check_config.type` | Key Fields                                                                                                                                                                                                                                                                                                                                                                                               | When to Use                                                                                                                                                              |
 | ------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **LLM Judge**       | `llm_judge`         | `prompt`, optional `model`, `truncation_strategy`                                                                                                                                                                                                                                                                                                                                                        | General-purpose: subjective quality, tone, completeness, reasoning. Use when criteria can't be reduced to exact string matching or tool call counting. Most common type. |
-| **String Contains** | `string_contains`   | `value`                                                                                                                                                                                                                                                                                                                                                                                                  | Verify the agent's response contains a specific substring (case-sensitive).                                                                                              |
-| **String Equals**   | `string_equals`     | `value`                                                                                                                                                                                                                                                                                                                                                                                                  | Strict — for deterministic outputs only.                                                                                                                                 |
+| **String Contains** | `string_contains`   | `value`                                                                                                                                                                                                                                                                                                                                                                                                  | Verify the agent's **last text** message contains a substring (case-insensitive). Earlier messages are not checked — use `llm_judge` for "mentions X anywhere".          |
+| **String Equals**   | `string_equals`     | `value`                                                                                                                                                                                                                                                                                                                                                                                                  | The agent's **last text** message equals `value` exactly (case-insensitive, trimmed). For deterministic outputs only.                                                    |
 | **Tool Usage**      | `tool_usage`        | `tool_id` (the **`action_id`** of a tool **or sub-agent** — see the ⚠️ note under Tool Simulation Config), `position` (`anywhere`/`first`/`last`), `operator` (`at_least`/`at_most`/`exactly`), `count`, optional `argument_matchers` (assert **what arguments** the tool was called with — see [Asserting tool arguments](#asserting-tool-arguments-argument_matchers)), and (workforce only) `node_id` | Verify a specific tool — or sub-agent — was (or wasn't) called, optionally with specific arguments.                                                                      |
 
 **Workforce scoping (`node_id`).** For a workforce, a `tool_usage` check optionally takes a `node_id` (from `relevance_get_workforce`). It then counts calls within **that node's own conversation(s)** only — aggregated across the node's runs, deduped per conversation. This is the only way to assert a **sub-agent's own** tool calls: without `node_id`, a workforce check sees only the orchestrator's (main) conversation. Two common shapes:
@@ -801,7 +883,7 @@ Reduce `max_turns`, simplify prompts, or run fewer test cases at once.
 
 ### Checks are too vague — inconsistent results
 
-Rewrite checks to be specific and observable. Include concrete criteria like "at least two", "within the first message", "mentions by name".
+Rewrite checks to be specific and observable. Include concrete criteria like "at least two", "within the first message", "mentions by name". A rewrite is re-authoring — follow [Runbook: Authoring checks](#runbook-authoring-checks-ground--interview).
 
 ### Performance dashboard returns no data
 

@@ -94,7 +94,7 @@ Phantom tools are system-injected at runtime from agent settings. Never add them
 
 ### Attaching Tools to Agents
 
-Use `relevance_attach_tools_to_agent` — it handles fetch, merge, save, publish, action ID retrieval, and system prompt injection in one call. Test each tool with `relevance_trigger_tool_async` first — tools that return empty `{}` need their output config fixed.
+Use `relevance_attach_tools_to_agent` — it handles fetch, merge, save, publish, action ID retrieval, and system prompt injection in one call. Test each tool with `relevance_trigger_tool` first — tools that return empty `{}` need their output config fixed.
 
 ### Reserved Variable Prefixes
 
@@ -152,4 +152,6 @@ Detailed guides for Relevance AI operations are in `skills/`:
 | `relevance-evals/`               | Agent & workforce evaluations, checks, tool simulation, and production monitoring dashboards       |
 | `relevance-diagnostics/`         | Diagnosing what's wrong in a project/agent/workforce and recommending fixes                        |
 | `relevance-task-ops/`            | Reading the Task Ops (monitor) page — errored / escalated / awaiting-approval tasks                |
+| `relevance-llm-models/`          | Picking an LLM model for an agent, tool step, or workforce node — and the config traps            |
+| `relevance-task-priorities/`     | Task-priority tiers, for when a resource is starved rather than failing                            |
 | `relevance-slide-builder/`       | Slideshows, slideshow templates, versions, and brand kits                                          |

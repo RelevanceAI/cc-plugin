@@ -38,6 +38,45 @@ Steps go through `relevance_add_tool_step` / `relevance_update_tool_step` / `rel
 
 Other step fields (`transformation`, `version`, `version_metadata`, `saved_params`, `parent_step`, `branch_id`) are not patchable through this tool. To change a step's transformation type or position, use `relevance_add_tool_step` / `relevance_remove_tool_step` / `relevance_move_tool_step`.
 
+## Picking a step type: the ladder
+
+Before you ask _which_ transformation, decide _what kind_ of step. Work down this ladder and stop
+at the first rung that fits:
+
+1. **A dedicated step for that action** — e.g. `send_email_gmail`, `create_google_calendar_event_v2`.
+2. **The provider's generic authenticated API-call step** — `google_api_call_v2`, `slack_api_call`,
+   `hubspot_api_call`, … It handles auth for you, so it reaches any endpoint the connected
+   account's scopes permit, including actions with no dedicated step. **Its parameters differ per
+   provider** — most take a relative `path`, a few take a full `url`, some need an extra tenant
+   param — so call `relevance_get_transformation` before setting `params`. See
+   [the per-provider API-call catalogue](transformations-catalog.md#per-provider-api-call-steps--the-escape-hatch-for-theres-no-step-for-that).
+3. **A tool that already does it, run as a step** — via [`run_chain`](#run_chain) (see below).
+4. **The generic `api_call` step** — when the provider has no integration at all and you supply auth yourself.
+5. **A code step** — last resort, and for reshaping data between steps rather than calling the
+   service itself.
+
+### Names don't follow the provider's API verbs
+
+Search by concept, not by the provider's method name. The Google Calendar _read_ step is called
+"Check Google calendar availability" (`check_google_calendar_v2`) — searching "list events" finds
+nothing. When a name-based search comes up empty, browse the tag instead:
+`relevance_list_transformations({ integration: "Google" })`.
+
+### Searching: single keyword first
+
+`search` matches **every word** of the query against a step's name and description. A longer query
+returns _fewer_ results, not better ones — `"get events google calendar"` returns nothing while
+`"calendar"` returns the set. So:
+
+1. Start with **ONE** keyword.
+2. If that's still wrong, drop `search` and browse by `integration` or `use_case` — these return
+   the whole tagged set. Every result echoes back its own `integrations` / `use_cases` values, so
+   one call teaches you the real filter vocabulary.
+3. Still nothing? Work rungs 2–4 of the ladder above before telling the user it doesn't exist.
+
+**Zero results means your query was probably wrong, not that the step is missing.** And the
+transformation list is only one of three catalogues — see [`run_chain`](#run_chain).
+
 ## Picking a transformation: native first
 
 Before consulting the per-type sections below, decide **which** transformation to use. `relevance_list_transformations` returns results partitioned into `native` and `pipedream` arrays:
@@ -55,7 +94,7 @@ Quick tells you have the native version:
 - The `transformation_id` is a clean snake_case name (e.g. `jira_native_create_issue`, `zendesk_native_create_ticket`, `linear_create_ticket`).
 - The result is in the `native` array of the search response.
 
-When in doubt, search with `relevance_list_transformations({ search: "<provider> <action>" })` and inspect both arrays before choosing. Never silently fall back to a third-party entry — if no native equivalent exists, surface that to the user (e.g. "There's no native action for this, but a third-party one exists — want me to use it?"). When referring to a `pipedream` entry in user-facing prose, call it a "third-party" integration.
+When in doubt, browse with `relevance_list_transformations({ integration: "<Provider>" })` — a single keyword or a tag filter, not a phrase (see [Searching](#searching-single-keyword-first)) — and inspect both arrays before choosing. Never silently fall back to a third-party entry — if no native equivalent exists, surface that to the user (e.g. "There's no native action for this, but a third-party one exists — want me to use it?"). When referring to a `pipedream` entry in user-facing prose, call it a "third-party" integration.
 
 ## Documentation
 
@@ -99,14 +138,7 @@ Text generation with LLM.
 
 **Output:** `{{answer}}`
 
-**Models:**
-
-- `anthropic-claude-sonnet-4` - Best quality/cost balance
-- `anthropic-claude-opus-4` - Highest quality
-- `openai-gpt-4o` - Fast, good quality
-- `openai-gpt-4o-mini` - Fast, cheaper
-- `relevance-cost-optimized` - Auto-select cheapest
-- `relevance-performance-optimized` - Auto-select best
+**Models:** default to `relevance-cost-optimized` (or `relevance-performance-optimized` for the hardest steps) — these auto-select a current model and never go stale. To pin a specific one, call `relevance_list_llm_models` and pick an id that is not flagged deprecated or retired; never guess an id from memory. When the step has a shape worth optimising for — high-volume extraction, strict JSON output, long documents, image input — load the `relevance-llm-models/SKILL` guide first.
 
 ### prompt_completion_vision
 
@@ -246,6 +278,8 @@ Make HTTP requests to **external** APIs. No auth injection — you must pass hea
 
 Make HTTP requests to **Relevance platform** APIs. **Auth is auto-injected** from the caller's context — no API keys needed. This is critical for marketplace tools: cloners get their own auth automatically.
 
+> **⚠️ Never hand-roll Relevance auth.** To reach the platform API from a tool, always use this step — never an `api_call` step with a manual `Authorization` header, and never a code step carrying a Relevance key. There is no key to paste, and a hardcoded one breaks the moment the tool is cloned or published.
+
 ```typescript
 {
   name: "fetch_collections",
@@ -311,6 +345,76 @@ Make HTTP requests to **Relevance platform** APIs. **Auth is auto-injected** fro
 - Calling external third-party APIs (not Relevance platform)
 - Endpoints that need DELETE or PATCH methods
 - When you need custom headers or query params
+
+## Running Another Tool as a Step
+
+### run_chain
+
+Runs one of your other tools as a step inside this tool ("Run another tool" in the builder). This
+is rung 3 of the [ladder](#picking-a-step-type-the-ladder), and it matters because **the builder's
+step picker draws from three separate catalogues** while `relevance_list_transformations` only
+searches one:
+
+| Catalogue                     | Found with                       | Added as                    |
+| ----------------------------- | -------------------------------- | --------------------------- |
+| Transformations               | `relevance_list_transformations` | the transformation directly |
+| The project's own tools       | `relevance_list_tools`           | a `run_chain` step          |
+| Relevance's public tool steps | `relevance_search_public_tools`  | a `run_chain` step          |
+
+So a step the user can see in the builder UI may be completely absent from a transformation
+search — that is expected, not a bug. **If the user names a step you can't find, check the other
+two catalogues before concluding it doesn't exist.** (Many Google Calendar, HubSpot, Notion and
+Trello "steps" users refer to are public tool steps, not transformations.)
+
+### ⚠️ A bare `studio_id` only resolves in the CURRENT project
+
+`run_chain` looks up `studio_id` in the caller's own project unless you tell it otherwise. Public
+tool steps live in a Relevance-owned project, so passing just their id fails with a misleading
+
+> `Tool with id <yourProject>-<studio_id> cannot be found, or you do not have permission to access it.`
+
+and that error is raised during setup, so `raise_subtool_errors: false` does **not** swallow it —
+the parent step fails. Pick the row that matches your case:
+
+| Your tool is…                                                                               | Pass                                                                                              |
+| ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| in the current project (incl. one you just created or cloned)                               | `studio_id` alone                                                                                 |
+| a public tool step you want to run as-is                                                    | `studio_id` **+ `project` + `region`** — read both off the `relevance_search_public_tools` result |
+| a public tool you want to modify, or that has its own `run_chain` steps / connected account | `relevance_clone_public_tool` first, then the **new id** it returns, no `project`/`region`        |
+
+Prefer cloning when the public tool nests its own `run_chain` steps or binds an OAuth account:
+running in place does not rewrite those, so the nested lookups resolve against _your_ project and
+the account id travels over unchanged. Cloning rewrites both.
+
+```typescript
+// A public tool step, run in place — project + region come from the search result.
+{
+  name: "get_events",
+  transformation: "run_chain",
+  params: {
+    studio_id: "get_events_from_google_calendar",
+    project: "{{params.source_project}}",   // required for a public tool
+    region: "{{params.source_region}}",     // required for a public tool
+    params: {
+      google_account: "{{params.google_account}}",
+      search_from_time: "{{params.start}}"
+    },
+    raise_subtool_errors: true
+  },
+  output: {
+    events: "{{output.events}}"
+  }
+}
+```
+
+| Param                  | Type    | Notes                                                                                                 |
+| ---------------------- | ------- | ----------------------------------------------------------------------------------------------------- |
+| `studio_id`            | string  | The tool to run. See the table above — a public tool step needs `project` + `region` too.             |
+| `params`               | object  | The subtool's own input params — call `relevance_get_tool` on it first to get their real names.       |
+| `raise_subtool_errors` | boolean | Default `false` (subtool errors are captured and the chain continues). Set `true` to fail the parent. |
+| `project` / `region`   | string  | Required whenever the tool lives outside the current project — including every public tool step.      |
+
+**Output:** `{{output}}` (the subtool's own output object — reach into it as `{{output.<field>}}`), plus `{{status}}`, `{{errors}}`, `{{job_info}}`. Downstream, an unaliased read is `{{steps.<name>.output.output.<field>}}` — note the doubled `output`; alias it in the step's own `output` mapping to avoid that.
 
 ## Code Execution
 
@@ -418,7 +522,7 @@ Iterate over arrays.
         name: "scrape",
         transformation: "browserless_scrape",
         params: {
-          website_url: "{{item}}"  // Current item
+          website_url: "{{foreach.item}}"  // Current item
         }
       }
     ]
@@ -458,17 +562,18 @@ Supports: PDF, Word, CSV, Excel
 
 "Key Output" is the field name on the transformation's raw response (use it inside that step's own `output:` mapping). "Access Pattern" is how a **downstream** step reads that value — always via the full `{{steps.<step_name>.output.<field>}}` path.
 
-| Transformation               | Key Output            | Downstream Access Pattern                                          |
-| ---------------------------- | --------------------- | ------------------------------------------------------------------ |
-| `markdown`                   | _(none)_              | Documentation step — see [documentation.md](documentation.md)      |
-| `prompt_completion`          | `{{answer}}`          | `{{steps.<name>.output.answer}}`                                   |
-| `python_code_transformation` | `return {"key": val}` | `{{steps.<name>.output.transformed.key}}`                          |
-| `browserless_scrape`         | `{{output.page}}`     | `{{steps.<name>.output.output.page}}` (or via your output mapping) |
-| `serper_google_search`       | `{{organic}}`         | `{{steps.<name>.output.organic}}` (or via your output mapping)     |
-| `loop`                       | `{{results}}`         | `{{steps.<name>.output.results}}` — array of `{inner_step: {...}}` |
-| `run_apify_dynamic`          | `{{items}}`           | `{{steps.<name>.output.items}}`                                    |
-| `api_call`                   | `{{response_body}}`   | `{{steps.<name>.output.response_body}}`                            |
-| `relevance_api_call`         | `{{response_body}}`   | `{{steps.<name>.output.response_body}}` (auth auto-injected)       |
+| Transformation               | Key Output            | Downstream Access Pattern                                                         |
+| ---------------------------- | --------------------- | --------------------------------------------------------------------------------- |
+| `markdown`                   | _(none)_              | Documentation step — see [documentation.md](documentation.md)                     |
+| `prompt_completion`          | `{{answer}}`          | `{{steps.<name>.output.answer}}`                                                  |
+| `python_code_transformation` | `return {"key": val}` | `{{steps.<name>.output.transformed.key}}`                                         |
+| `browserless_scrape`         | `{{output.page}}`     | `{{steps.<name>.output.output.page}}` (or via your output mapping)                |
+| `serper_google_search`       | `{{organic}}`         | `{{steps.<name>.output.organic}}` (or via your output mapping)                    |
+| `loop`                       | `{{results}}`         | `{{steps.<name>.output.results}}` — array of `{inner_step: {...}}`                |
+| `run_apify_dynamic`          | `{{items}}`           | `{{steps.<name>.output.items}}`                                                   |
+| `api_call`                   | `{{response_body}}`   | `{{steps.<name>.output.response_body}}`                                           |
+| `relevance_api_call`         | `{{response_body}}`   | `{{steps.<name>.output.response_body}}` (auth auto-injected)                      |
+| `run_chain`                  | `{{output}}`          | `{{steps.<name>.output.output.<field>}}` — alias it to avoid the doubled `output` |
 
 ## Email Transformations
 

@@ -38,6 +38,8 @@ The marketplace must be added first — the `@cc-plugin` suffix only resolves on
 | `relevance-evals` | Agent & workforce evaluations, checks, and production monitoring |
 | `relevance-diagnostics` | Diagnosing project/agent/workforce issues and recommending fixes |
 | `relevance-task-ops` | Reading the Task Ops monitor page (errored / escalated / pending tasks) |
+| `relevance-llm-models` | Picking an LLM model for an agent, tool step, or workforce node |
+| `relevance-task-priorities` | Task-priority tiers, for resources that are starved rather than failing |
 | `relevance-slide-builder` | Slideshows, templates, versions, and brand kits |
 
 ## Setup

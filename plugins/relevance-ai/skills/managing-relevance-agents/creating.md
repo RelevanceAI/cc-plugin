@@ -184,7 +184,7 @@ relevance_trigger_agent({
 ### Step 6: Ask the User, Then Publish
 
 After the user has reviewed the draft and confirmed they want it live, publish it.
-`relevance_publish_agent` always shows an approval card (even with auto-approve enabled).
+`relevance_publish_agent` is irreversible, so confirm in chat before calling it.
 
 Always pass a concise `version_description` (and `version_name`) — a clear, one-line summary of what changed and why, easy to understand. This is the version-history trail; reuse the summary you gave the user and never leave it blank.
 
@@ -221,12 +221,11 @@ Before creating a new agent, look at how similar working agents are configured. 
 
 ## Model Options
 
-| Model                       | Use Case                  |
-| --------------------------- | ------------------------- |
-| `anthropic-claude-sonnet-4` | Best quality/cost balance |
-| `anthropic-claude-opus-4`   | Highest quality           |
-| `openai-gpt-4o`             | Fast, good quality        |
-| `openai-gpt-4o-mini`        | Fast, cheaper             |
+Never hardcode a versioned model id — models get retired, and a retired id silently degrades the agent. Call `relevance_list_llm_models` and pick one that is not flagged deprecated or retired.
+
+With no specific reason to prefer a particular model, use `relevance-cost-optimized` (or `relevance-performance-optimized` for the hardest tasks). These always resolve to a current model, so they never go stale — and they are what a new agent gets by default.
+
+When the agent does have a shape — a long tool loop, a latency-sensitive chat agent, image or PDF input, high-volume extraction — load the `relevance-llm-models/SKILL` guide instead of defaulting. It maps the shape to a current model and covers the reasoning-effort and parameter settings that have to be set alongside it.
 
 ## Common Patterns
 
@@ -248,6 +247,6 @@ After creating an agent, test it with `relevance_trigger_agent` to verify it wor
 - [ ] All actions have project and region fields
 - [ ] Correct action_behaviour for each tool
 - [ ] Model appropriate for task complexity
-- [ ] Each tool individually validated with `relevance_run_tool`
+- [ ] Each tool individually validated with `relevance_trigger_tool` (then `relevance_poll_tool_result`)
 - [ ] Agent tested with `relevance_trigger_agent`
 - [ ] Triggers configured (if needed)

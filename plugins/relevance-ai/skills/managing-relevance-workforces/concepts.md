@@ -13,7 +13,6 @@ A **workforce** is a multi-agent system represented as a directed graph of nodes
 {
   workforce_metadata: {
     name: string,
-    type: "default" | "chat",
     description?: string
   },
   workforce_graph: {
@@ -193,12 +192,9 @@ When using `tool-call` edges, you can configure how the source agent invokes the
 | `prompt_for_when_to_use` | Instructions injected into source agent's system prompt               |
 | `params_schema`          | JSON Schema for parameters the source can pass to target              |
 
-## Workforce Types
+## Execution Limit
 
-| Type      | Execution Limit               | Use Case                                    |
-| --------- | ----------------------------- | ------------------------------------------- |
-| `default` | 100 node executions/task/24h  | Task-based workflows that run to completion |
-| `chat`    | 5000 node executions/task/24h | Long-lived conversational interfaces        |
+A workforce task is capped at 100 node executions per 24 hours, so a task that loops between agents can stall once it exhausts the budget.
 
 ## Common Patterns
 

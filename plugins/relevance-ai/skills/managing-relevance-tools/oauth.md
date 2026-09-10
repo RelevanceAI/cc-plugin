@@ -25,7 +25,7 @@ When a tool needs to access a third-party API that requires OAuth authentication
 
 ## ❌ Anti-pattern: plain-string / hardcoded account
 
-**The most common OAuth mistake: declaring the account as a plain text input (or pasting a raw account id into a step).** A `type: "string"` property _without_ `content_type: "oauth_account"` renders a free-text box, not the account selector. The tool then receives an un-credentialed string, and every subsequent step that calls the API fails — even though the input "looks" filled in.
+**The most common OAuth mistake: declaring the account as a plain text input (or pasting a raw account id into a step).** A `type: "string"` property _without_ `metadata.content_type: "oauth_account"` renders a free-text box, not the account selector. The tool then receives an un-credentialed string, and every subsequent step that calls the API fails — even though the input "looks" filled in.
 
 ```typescript
 // ❌ WRONG — plain string input + hardcoded id. Renders a text box; steps fail.
@@ -87,12 +87,12 @@ params_schema: {
 
 ### Key Fields
 
-| Field               | Description                                             |
-| ------------------- | ------------------------------------------------------- |
-| `content_type`      | Must be `oauth_account` to show the account selector    |
-| `oauth_permissions` | Array of required permissions                           |
-| `provider`          | OAuth provider name (e.g., `ahrefs`, `google`, `slack`) |
-| `types`             | Array of permission type strings required               |
+| Field                                   | Description                                             |
+| --------------------------------------- | ------------------------------------------------------- |
+| `metadata.content_type`                 | Must be `oauth_account` to show the account selector    |
+| `metadata.oauth_permissions`            | Array of required permissions                           |
+| `metadata.oauth_permissions[].provider` | OAuth provider name (e.g., `ahrefs`, `google`, `slack`) |
+| `metadata.oauth_permissions[].types`    | Array of permission type strings required               |
 
 ## Pass OAuth to Transformation Steps
 

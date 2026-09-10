@@ -137,7 +137,7 @@ Each outgoing edge from a condition node MUST carry a `condition` payload:
 | `prompt-based` | The decision needs LLM reasoning — semantic intent, judgement, soft criteria                             | `{ type: "prompt-based", config: { prompt: "..." } }`         |
 | `rule-based`   | The decision is a structural filter over input fields — value equality, comparisons, AND/OR combinations | `{ type: "rule-based", config: { filters: [<FilterItem>] } }` |
 
-Prompt-based conditions optionally use `llm_condition_model` on the node (e.g. `llm_condition_model: 'openai-gpt-5'`) to override the default model. Rule-based filters use the same shape as `FilterItem` filters elsewhere in the platform — refer to the relevant tool docs when constructing them.
+Prompt-based conditions optionally use `llm_condition_model` on the node (e.g. `llm_condition_model: 'relevance-cost-optimized'`) to override the default model — never hardcode a versioned model id, call `relevance_list_llm_models` if you need a specific one. Rule-based filters use the same shape as `FilterItem` filters elsewhere in the platform — refer to the relevant tool docs when constructing them.
 
 ### Valid edges to/from condition nodes
 

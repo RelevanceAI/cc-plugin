@@ -1,6 +1,6 @@
 ---
 title: Agent Triggers
-description: Configure event-driven and scheduled triggers (webhooks, email, Slack, LinkedIn, schedules) that feed agents work. Load when setting up automation or choosing between polling and push triggers.
+description: Configure event-driven and scheduled triggers (webhooks, email, Slack, LinkedIn, recurring schedules) that feed agents work. An agent can have many triggers at once, including several recurring schedules. Load when setting up automation, adding a second trigger, choosing between polling and push, or writing the message a schedule sends.
 ---
 
 # Agent Triggers
@@ -144,6 +144,78 @@ Is this time-based work (reports, digests, monitoring)?
 
 ---
 
+## Multiple Triggers Per Agent
+
+**An agent can have as many triggers as you want, of any type, at the same time.** There is no
+one-trigger-per-agent limit and no one-recurring-schedule-per-agent limit. Creating a second trigger
+does **not** replace the first.
+
+- To **add** a trigger, call `relevance_create_trigger` **without** `document_id`.
+- To **edit** an existing trigger, pass its `document_id` (from `relevance_list_agent_triggers`).
+
+That distinction is the whole thing: `document_id` is what makes the call an edit. If you pass the
+same `document_id` twice, of course the second call overwrites the first — that's an update, not a
+platform limit.
+
+Combinations that are all fine:
+
+- Five separate `weekly` recurring triggers (Mon–Fri), each with its own message.
+- A `daily` digest **plus** a `gmail` trigger **plus** a `custom_webhook` on one agent.
+- Two `slack` triggers on the same workspace, watching different channels.
+
+### Worked example: weekdays only at 08:00 Sydney
+
+Two valid shapes — pick by whether the days need _different_ instructions.
+
+**Option A — five weekly triggers** (use when each day's message differs, e.g. Monday needs a
+longer lookback to cover the weekend, or you want to pause Friday independently):
+
+```typescript
+for (const day of ['mon', 'tue', 'wed', 'thu', 'fri']) {
+  await relevance_create_trigger({
+    agent_id: '...',
+    trigger_type: 'recurring',
+    // no document_id — each call adds another trigger
+    trigger_config: {
+      name: `Morning digest (${day})`,
+      message: '...', // see "Writing the Trigger Message" below
+      schedule: {
+        frequency: 'weekly',
+        day_of_week: day,
+        hour: '08:00',
+        timezone: 'Australia/Sydney',
+      },
+    },
+  });
+}
+```
+
+**Option B — one `custom_cron` trigger** (use when all five days do the same thing):
+
+```typescript
+relevance_create_trigger({
+  agent_id: '...',
+  trigger_type: 'recurring',
+  trigger_config: {
+    name: 'Morning digest (weekdays)',
+    message: '...',
+    schedule: {
+      frequency: 'custom_cron',
+      cron_expression: '0 8 ? * MON-FRI *',
+      timezone: 'Australia/Sydney', // optional but recommended — defaults to UTC
+    },
+  },
+});
+```
+
+> **Set `timezone` on `custom_cron` too.** It's optional and defaults to UTC, but a cron expression
+> written against a fixed UTC offset drifts by an hour when the local zone changes for daylight
+> saving. Naming the IANA zone makes the platform handle the shift.
+
+Five triggers means five entries in the trigger list and five things to keep in sync; one cron means
+one message for all five days. Neither is a workaround for the other — choose on whether the days
+need different instructions.
+
 ## Trigger Types
 
 | Type               | Description                   | Use Case                                       |
@@ -169,6 +241,9 @@ relevance_list_agent_triggers({ agent_id: '...' });
 
 ### Create Trigger
 
+Omit `document_id` — the agent keeps any triggers it already has. See
+[Multiple Triggers Per Agent](#multiple-triggers-per-agent).
+
 ```typescript
 relevance_create_trigger({
   agent_id: '...',
@@ -179,6 +254,10 @@ relevance_create_trigger({
   },
 });
 ```
+
+The response includes the new `document_id` and `created` — `true` when the call added a trigger,
+`false` when it replaced an existing one. Read it rather than assuming: a `false` on a call you meant
+as a create means the id was already taken, not that the agent is limited to one trigger.
 
 ### Enable / Disable Trigger
 
@@ -412,10 +491,88 @@ relevance_create_trigger({
     schedule: {
       frequency: 'custom_cron',
       cron_expression: '0 9 ? * MON-FRI *', // 9am Mon-Fri
+      timezone: 'America/New_York', // optional; without it the cron runs in UTC
     },
   },
 });
 ```
+
+### Writing the Trigger Message
+
+The `message` is the entire instruction the agent receives when the schedule fires. Getting it wrong
+is the most common reason a correctly-configured recurring trigger produces useless runs. Four
+properties of a scheduled run drive everything below:
+
+1. **The message is static.** The same text is sent every single fire. It's a standing instruction,
+   not a one-off request.
+2. **The run starts a fresh conversation.** No history, no earlier context, no memory of the last
+   run. Whatever the agent needs must be in the message or the system prompt.
+3. **The agent knows when it fired, but not what you meant by it.** Each run carries a timestamp, so
+   a window expressed as a duration ("the last 24 hours") resolves correctly. But that timestamp
+   reaches the agent in **UTC**, not the schedule's timezone — which is a _different weekday_ from
+   local for a morning schedule in Sydney or an evening one in Los Angeles — and nothing tells it
+   which trigger fired or how often. So: durations are safe; "it's Monday" is not. If a run's
+   behaviour genuinely depends on the local day, put that day in its own trigger rather than asking
+   the agent to work it out.
+4. **It runs whether or not there's work.** A daily trigger fires on quiet days too.
+
+So the message should:
+
+- **Name the run.** Open with a short label and cadence: `"MORNING DIGEST — daily 08:00 run."` This
+  is how the agent (and anyone reading the task list) tells one schedule's runs from another's.
+- **Give a window as a duration, not a date.** `"cover everything from the last 24 hours"` — never a
+  hardcoded date, and never "work out what day it is and pick a lookback" (that's a coin flip on
+  every run, and it silently breaks around weekends and holidays).
+- **Prefer a window the tool understands natively.** Gmail's `newer_than:3d`, an API's
+  `since`/`updated_after` parameter, a relative filter — these are exact. Ask the agent to compute
+  an absolute date only when the tool gives you no relative option.
+- **State the exit condition.** `"If there is nothing new, reply NOTHING TO REPORT and stop."`
+  Without it, an agent with nothing to do will pad, re-report old items, or invent work — on every
+  quiet day, at full cost.
+- **Name where the output goes** — post to Slack, send an email, or just reply.
+
+**❌ Bad**
+
+```
+MORNING_DIGEST — Monday run. Lookback window: 72 hours (since Friday).
+Calculate the date 3 days ago and use it as after_date for the Gmail fetch.
+Use today's date for the calendar lookup.
+```
+
+Assumes it only ever fires on Monday (a `daily` schedule fires seven days a week), makes the agent
+do date arithmetic, and never says what to do when the inbox is empty.
+
+**✅ Good** — the Tue–Fri trigger (`custom_cron`, `0 8 ? * TUE-FRI *`):
+
+```
+MORNING DIGEST — scheduled 08:00 run, Tuesday to Friday.
+
+1. Fetch email from the last 24 hours using the Gmail search filter `newer_than:1d`.
+2. Fetch today's calendar events.
+3. Post a summary to #daily-digest: urgent emails first, then meetings.
+
+If there is no new email and no meetings, reply "NOTHING TO REPORT" and stop —
+do not post to Slack.
+```
+
+**✅ Good** — the Monday trigger (`weekly`, `day_of_week: 'mon'`), same agent, second trigger:
+
+```
+MORNING DIGEST — scheduled 08:00 Monday run, covering the weekend.
+
+1. Fetch email from the last 72 hours using the Gmail search filter `newer_than:3d`.
+2. Fetch today's calendar events.
+3. Post a summary to #daily-digest: urgent emails first, then meetings.
+
+If there is no new email and no meetings, reply "NOTHING TO REPORT" and stop —
+do not post to Slack.
+```
+
+> **One trigger per distinct instruction.** Monday needs a 72-hour window and the other weekdays
+> need 24, so that's two triggers — each with its own fixed window — not one message asking the
+> agent to work out the day and branch. Two triggers on one agent is the normal shape here, and each
+> can be paused or edited on its own. See
+> [Multiple Triggers Per Agent](#multiple-triggers-per-agent).
 
 ### Webhook Triggers
 
@@ -483,15 +640,19 @@ For Unipile triggers (LinkedIn/WhatsApp/Telegram), you also need `provider_user_
 
 ## Trigger Document IDs
 
-Triggers are identified by document IDs. Get these from `relevance_list_agent_triggers`:
+Each trigger has a `document_id` assigned by the platform. **Treat it as opaque — never construct,
+guess, or derive one.** Always read it back from `relevance_list_agent_triggers`:
 
 ```typescript
 const triggers = await relevance_list_agent_triggers({ agent_id: '...' });
-// triggers.results[0].document_id = "agentId_gmail_oauthId"
+const digest = triggers.results.find((t) => t.data.config.type === 'recurring');
 
-// Use to delete
-relevance_delete_trigger({ document_id: 'agentId_gmail_oauthId' });
+relevance_delete_trigger({ document_id: digest.document_id });
 ```
+
+You need the `document_id` to update, pause/resume, or delete a trigger. You do **not** need it to
+create one — omitting it is what makes the call create a new trigger rather than edit an existing
+one.
 
 ## Example: Email Assistant Setup
 

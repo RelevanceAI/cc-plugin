@@ -46,7 +46,7 @@ relevance_create_tool_from_transformation({
 });
 ```
 
-> **⚠️ Auto-generated tools often have broken output configs.** The tool may have empty step output mappings (`"output": {}`) and invalid final output references. This means the tool executes but **returns empty results**. Always validate with `relevance_run_tool` after creation. See [Fixing Auto-Generated Tool Outputs](#fixing-auto-generated-tool-outputs) below.
+> Always validate a newly created tool with `relevance_trigger_tool` (then `relevance_poll_tool_result`).
 
 ## Updating Existing Tools
 
@@ -164,7 +164,7 @@ If you set an explicit `output` mapping on a step (e.g. `output: { results: "{{o
 
 ### Loop Items
 
-Inside loops, use `{{foreach.item}}` or just `{{item}}`:
+Inside loops, reference the current item as `{{foreach.item}}` (and its fields as `{{foreach.item.<field>}}`). A bare `{{item}}` does **not** resolve — it silently becomes the literal string `"undefined"`.
 
 ```typescript
 params: {
@@ -300,11 +300,11 @@ The `emoji` field accepts a unicode emoji or a full CDN URL to a brand SVG. **Pr
 ## Testing After Creation
 
 ```typescript
-// Sync execution
-relevance_run_tool({
+const { job_id } = await relevance_trigger_tool({
   studio_id: 'my-tool',
   params: { query: 'test query' },
 });
+relevance_poll_tool_result({ studio_id: 'my-tool', job_id, wait_seconds: 50 });
 ```
 
 > **After calling `relevance_set_tool_output`, always re-run the draft and inspect the returned `output` object** to confirm the top-level keys match what you declared. See [outputs.md](outputs.md) for the full model.
@@ -316,7 +316,7 @@ Both create and update save to a DRAFT — publishing is always a separate, user
 - **Creating a new tool** (`relevance_create_tool`): saves to a draft. The new tool has only a draft version; call `relevance_publish_tool` to make it live.
 - **Updating an existing tool** (`relevance_update_tool`): saves to a draft only — the live version is unchanged until you call `relevance_publish_tool`.
 
-`relevance_publish_tool` always shows an approval card to the user (even with auto-approve enabled), so confirm in chat before calling it. Always pass a concise `version_description` (and `version_name`) — a clear, one-line summary of what changed and why, easy to understand (see [Version Management](versions.md)):
+`relevance_publish_tool` is irreversible, so confirm in chat before calling it. Always pass a concise `version_description` (and `version_name`) — a clear, one-line summary of what changed and why, easy to understand (see [Version Management](versions.md)):
 
 ```typescript
 relevance_publish_tool({
@@ -327,14 +327,15 @@ relevance_publish_tool({
 });
 ```
 
-Test the draft first using `relevance_run_tool` with `version: "draft"`:
+Test the draft first using `relevance_trigger_tool` with `version: "draft"`:
 
 ```typescript
-relevance_run_tool({
+const { job_id } = await relevance_trigger_tool({
   studio_id: 'my-tool',
   params: { query: 'test query' },
   version: 'draft',
 });
+relevance_poll_tool_result({ studio_id: 'my-tool', job_id, wait_seconds: 50 });
 ```
 
 ---
@@ -361,7 +362,7 @@ Always call `relevance_get_tool` first to confirm step indices in the current dr
    - the tool-level runtime `output` map (set via `relevance_set_tool_output`),
    - `state_mapping` values (bare JSONPaths like `steps.<old_name>.output.…`, no curly braces).
 2. **Update every occurrence** to the new name/field — do not stop at the first hit.
-3. **Re-run the draft** (`relevance_run_tool({ studio_id, version: 'draft' })`) and confirm there are no "doesn't exist" / "Variable not found" errors before publishing.
+3. **Re-run the draft** (`relevance_trigger_tool({ studio_id, version: 'draft' })`, then `relevance_poll_tool_result`) and confirm there are no "doesn't exist" / "Variable not found" errors before publishing.
 
 ```typescript
 // You rename step "search" → "web_search" via relevance_update_tool_step.
@@ -419,9 +420,9 @@ Always call `relevance_get_tool` first to confirm step indices in the current dr
 
 **Non-JS steps** (`prompt_completion`, `api_call`, etc.) reach studio inputs and step outputs via template substitution: `{{params.X}}` for studio inputs, `{{steps.X.output.Y}}` for previous-step outputs. No `state_mapping` entry is needed for either.
 
-## Fixing Auto-Generated Tool Outputs
+## Fixing Empty Tool Outputs
 
-Tools created by `relevance_create_tool_from_transformation` often return empty `{}` because output fields aren't mapped. Fix in two steps:
+A tool whose stored config carries an explicit empty output map (`"output": {}`) returns `{}` at run time — the empty map replaces the step's real output. Fix in two steps, or use the same two steps to deliberately narrow what a tool returns:
 
 1. **Map each step's outputs.** Call `relevance_get_transformation` for the underlying transformation, look up its available fields, then `relevance_update_tool_step` to set an explicit `output: { "<field>": "{{<field>}}" }` mapping on each step.
 2. **Declare the tool's runtime output.** Call `relevance_set_tool_output` with the paired fields: `output: { answer: '{{steps.<step_name>.output.<actual_field>}}', ... }` and `output_schema: { metadata: { field_order: ['answer', ...] }, properties: { answer: { metadata: { render_mode: 'markdown' } } } }`.
@@ -458,6 +459,20 @@ If it reports an **OAuth** requirement, the account MUST be declared as a proper
 
 ## Using Secrets in Code Steps
 
+Work down this ladder and stop at the first rung that fits — most tools need no credential of their own.
+
+1. **Calling the Relevance platform API — there is no key to supply.** Use a `relevance_api_call` step; auth is auto-injected from the caller, which is also what makes the tool survive cloning and marketplace publishing. See [relevance_api_call](transformations.md#relevance_api_call) (GET/POST/PUT, relative `path`). A **Python** code step is likewise already authenticated by the sandbox. A **JS** code step is **not** — a JS step that needs the platform API must hand the call to a `relevance_api_call` step rather than build its own request.
+2. **Third-party API — prefer a transformation with built-in `authorization_config`** (`hubspot_api_call`, `slack_api_call`, …). It resolves auth server-side, so the tool definition holds nothing.
+3. **OAuth account** — a `params_schema` input with `metadata.content_type: "oauth_account"`, passed to the step as `oauth_account_id: "{{params.<name>}}"`. See [oauth.md](oauth.md).
+4. **API key input** — a `params_schema` input with `metadata.content_type: "api_key"` and `metadata.project_key_name`. This renders the key-vault picker, not a free-text box.
+5. **`{{secrets.chains_*}}`** — last resort, for a key the user has already stored in the project themselves.
+
+> **❌ Never store a credential as a param `default`, and never inline a raw key into a code step.** `hidden` is not a supported schema field — it is silently ignored, so nothing is hidden. A credential in a param default is sent to the model on every turn, written to run history, readable by anyone with viewer access to the project, exposed by public share links, and copied on clone or marketplace publish. Unlike `{{secrets.*}}`, it is never redacted from step output.
+
+> **❌ Never ask the user to paste, type, or send a key or token in the conversation.** If a step genuinely needs a key the project doesn't have, call `relevance_check_tool_integration_requirements` (or `relevance_check_api_key_availability`) and give the user the `setup_url` it returns — they add it on the Integrations page, where it is stored encrypted and never handed back.
+
+### Referencing a stored secret
+
 Secrets are accessed via **template syntax** `{{secrets.secret_name}}`, NOT as JavaScript/Python objects.
 
 ```javascript
@@ -468,23 +483,7 @@ const apiKey = secrets.my_api_key; // Error: secrets is not defined
 const apiKey = '{{secrets.my_api_key}}';
 ```
 
-**Secret names MUST start with `chains_` prefix.** If you reference `{{secrets.my_key}}`, the secret must be named `chains_my_key` in the project.
-
-**Alternative:** Pass credentials as tool input parameters with hidden defaults to avoid the `chains_` prefix:
-
-```json
-{
-  "params_schema": {
-    "properties": {
-      "_api_key": { "type": "string", "default": "sk-...", "hidden": true }
-    }
-  }
-}
-```
-
-Then use template substitution: `api_key = '{{params._api_key}}'`
-
-**For API calls**, prefer transformations with built-in `authorization_config` (e.g., `hubspot_api_call`) which handle auth automatically.
+**Secret names MUST start with `chains_` prefix.** If you reference `{{secrets.my_key}}`, the secret must be named `chains_my_key` in the project. The prefix is a security boundary, not a naming chore — it stops a tool from reading platform-managed keys. Never route around it.
 
 ---
 
@@ -519,5 +518,5 @@ Template injection (`{{steps.stepName.output}}`) has a size limit (~5-10KB). If 
 3. **Test incrementally** - Add one step at a time
 4. **Document with prompt_description** - Help AI know when to use the tool
 5. **Handle errors in Python steps** - Add try/catch for robustness
-6. **Validate every tool before attaching to agents** - Test with `relevance_run_tool` to catch empty output issues
+6. **Validate every tool before attaching to agents** - Test with `relevance_trigger_tool` (then `relevance_poll_tool_result`) to catch empty output issues
 7. **Use backtick template literals in JS steps** - Never use single quotes (`'{{param}}'`), which break with apostrophes in values

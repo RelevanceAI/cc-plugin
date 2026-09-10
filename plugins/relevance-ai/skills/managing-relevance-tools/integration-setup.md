@@ -16,6 +16,8 @@ Tools authenticate with external services in one of two ways. This doc is the ro
 | Where users configure | Integrations page → OAuth provider drawer (login flow)                           | Integrations page → API key provider drawer (paste secret)                                                    |
 | Tools can auto-fill   | Yes — `relevance_attach_tools_to_agent` sets the account ID as the param default | No — the key is looked up at runtime from the project/org                                                     |
 
+> **❌ Either way, the user configures the credential on the Integrations page — never in the conversation.** Don't ask them to paste, type, or send a key or token to you, and never write one into a tool definition; hand them the `setup_url` below instead. For the authoring side, see the credential ladder in [creating.md](creating.md#using-secrets-in-code-steps).
+
 ## When to Check
 
 - **After `relevance_attach_tools_to_agent`** — its `integration_warnings` lists tools needing OAuth or API keys.

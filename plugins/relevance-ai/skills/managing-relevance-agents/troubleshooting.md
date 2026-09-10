@@ -19,13 +19,13 @@ Step N: API call        Step 0: Agent/Trigger
 
 **Common root causes:**
 
-| Symptom                   | Often Actually Caused By                                                        |
-| ------------------------- | ------------------------------------------------------------------------------- |
-| API parameter missing     | Agent didn't pass it in tool call                                               |
-| `KeyError: 'transformed'` | Previous Python step errored or returned wrong type                             |
-| Empty string in API call  | Upstream step received empty input                                              |
-| `required property` error | params_schema mismatch in workforce edge                                        |
-| Tool returns empty `{}`   | Output config not mapped (see creating.md "Fixing Auto-Generated Tool Outputs") |
+| Symptom                   | Often Actually Caused By                                                            |
+| ------------------------- | ----------------------------------------------------------------------------------- |
+| API parameter missing     | Agent didn't pass it in tool call                                                   |
+| `KeyError: 'transformed'` | Previous Python step errored or returned wrong type                                 |
+| Empty string in API call  | Upstream step received empty input                                                  |
+| `required property` error | params_schema mismatch in workforce edge                                            |
+| Tool returns empty `{}`   | Stored output map is an explicit `{}` (see creating.md "Fixing Empty Tool Outputs") |
 
 ## Critical Issues
 
@@ -35,7 +35,7 @@ Step N: API call        Step 0: Agent/Trigger
 
 **Cause:** Those tools save to a DRAFT only. The active version is still the previously-published one (or undefined if `relevance_create_agent` hasn't been published yet).
 
-**Fix:** Confirm with the user, then call `relevance_publish_agent({ agent_id })`. The publish tool always shows an approval card (even with auto-approve enabled) — that's intentional.
+**Fix:** Confirm with the user, then call `relevance_publish_agent({ agent_id })`. Publishing is irreversible, so never call it without that confirmation.
 
 **Inspecting state:** Call `relevance_get_agent` and check `has_unpublished_draft`, `active_version_id`, and `draft_version_id` on the response.
 
@@ -171,7 +171,7 @@ When the root cause is a missing or wrong OAuth account (or a missing API key), 
 
 **Cause:** Re-triggering the agent after a timeout or pending_approval. The original task is still running server-side.
 
-**Fix:** Never re-trigger. Instead, use `relevance_get_agent_task_summary` with the original `conversation_id` to check status. The `relevance_trigger_agent` tool returns `timed_out` or `pending_approval` as informational statuses, not errors.
+**Fix:** Never re-trigger _while the original run is still going_. Instead, use `relevance_get_agent_task_summary` with the original `conversation_id` to check status. The `relevance_trigger_agent` tool returns `timed_out` or `pending_approval` as informational statuses, not errors. (Once the run reaches a terminal status, a genuine follow-up message _should_ trigger again — passing the same `conversation_id` so it continues that thread.)
 
 ### Agent Stuck/Not Responding
 
@@ -196,12 +196,13 @@ When the root cause is a missing or wrong OAuth account (or a missing API key), 
 
 **Symptom:** Error about model not found.
 
-**Valid models:**
+Never guess a model id. Call `relevance_list_llm_models` for the current list and pick one that is not flagged deprecated or retired, or fall back to `relevance-cost-optimized` / `relevance-performance-optimized`, which never go stale.
 
-- `anthropic-claude-sonnet-4`
-- `anthropic-claude-opus-4`
-- `openai-gpt-4o`
-- `openai-gpt-4o-mini`
+### Agent Is on a Retired Model
+
+**Symptom:** `relevance_get_agent` reports the model as retired, or the model shows a warning in the UI.
+
+A retired model still runs — the platform silently substitutes its replacement — but the agent is not using the model its config claims, and quality may differ from what was tested. Set the model to the replacement the listing names, or to `relevance-cost-optimized`.
 
 ## Debugging Steps
 
@@ -292,7 +293,7 @@ const transform = await relevance_get_transformation({
 
 1. Use `relevance_get_agent` to dump full config
 2. Check conversation with `relevance_get_agent_task_summary`
-3. Test tools independently with `relevance_run_tool`
+3. Test tools independently with `relevance_trigger_tool` (then `relevance_poll_tool_result`)
 4. Review OAuth with `relevance_list_oauth_accounts`
 5. Check transformation schemas with `relevance_get_transformation`
 6. When the failure is a missing/wrong account or key, call `relevance_check_tool_integration_requirements` and give the user the returned `setup_url` as a clickable link — never paraphrase the Integrations navigation in prose

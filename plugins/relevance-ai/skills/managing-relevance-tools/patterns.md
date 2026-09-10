@@ -241,7 +241,7 @@ return {"queries": json.loads(json_str.strip())}
               name: "search",
               transformation: "serper_google_search",
               params: {
-                search_query: "{{item}}",
+                search_query: "{{foreach.item}}",
                 num: 5
               },
               output: { results: "{{organic}}" }
@@ -301,7 +301,7 @@ Process a list of URLs in parallel.
               name: "scrape",
               transformation: "browserless_scrape",
               params: {
-                website_url: "{{item}}",
+                website_url: "{{foreach.item}}",
                 method: "Text"
               },
               output: { content: "{{output.page}}" }
@@ -446,7 +446,7 @@ Different actions based on input.
         transformation: "prompt_completion",
         params: {
           prompt: "Is '{{params.input}}' a URL, email, or other? Reply with just: url, email, or other",
-          model: "openai-gpt-4o-mini"
+          model: "relevance-cost-optimized"
         },
         output: { type: "{{answer}}" }
       },

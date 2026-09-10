@@ -57,15 +57,28 @@ const task = await relevance_poll_agent_result({
 // Re-poll while task.status === "in_progress"
 ```
 
-### Continue Existing Conversation
+### Continue an Existing Conversation
+
+A conversation is a thread: pass `conversation_id` and the agent sees every earlier turn. Omit it and you get a brand-new thread with no memory of what came before.
+
+**Default to continuing.** When the user builds on what the agent just did — "try again", "now with an example", "what about Q3?" — reuse the `conversation_id` from the previous trigger. Start a fresh thread only when the user asks to start over, or when the next request is a genuinely separate unit of work (a different subject, customer, or document) where the earlier context would mislead the agent. When in doubt, continue the existing thread.
 
 ```typescript
+const first = await relevance_trigger_agent({
+  agent_id: '...',
+  message: "Research Tesla's Q3 earnings",
+});
+// …poll to a terminal status…
+
+// Follow-up in the SAME thread — the agent still has the Q3 research in context
 relevance_trigger_agent({
   agent_id: '...',
-  conversation_id: 'previous-conversation-id',
-  message: 'Tell me more about transformers',
+  conversation_id: first.conversation_id,
+  message: 'How does that compare to last quarter?',
 });
 ```
+
+> Continuing a finished conversation is not the same as re-triggering a running one. While a run is `in_progress` or `pending_approval`, don't trigger at all — re-poll (see [Polling Pacing](#polling-pacing)). Once it reaches a terminal status, a follow-up should trigger again with the same `conversation_id`.
 
 ## Viewing Agent Tasks
 
@@ -86,8 +99,6 @@ Returns summarized view with:
 - Tool calls with output previews
 - Extracted artifacts (images, files, PDFs)
 
-### Full Mode
-
 ## Testing Workflow
 
 ### 0. Validate Tools First
@@ -95,9 +106,14 @@ Returns summarized view with:
 Before testing the agent, validate each attached tool individually to catch broken output configs:
 
 ```typescript
-const result = await relevance_run_tool({
+const { job_id } = await relevance_trigger_tool({
   studio_id: 'tool-id',
   params: { query: 'test input' },
+});
+const result = await relevance_poll_tool_result({
+  studio_id: 'tool-id',
+  job_id,
+  wait_seconds: 50,
 });
 // ✅ Returns meaningful data → tool works
 // ❌ Returns {} or empty → fix output config before agent testing

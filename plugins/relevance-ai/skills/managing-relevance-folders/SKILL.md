@@ -189,6 +189,8 @@ https://app.relevanceai.com/notebook/{region}/{project}/list
 
 After mutating via the tools, refreshing one of these pages is enough to verify.
 
+Every app URL is **section-first** — `{app}/{section}/{region}/{project}/…`; the region and project never come before the section.
+
 ## Reporting Issues
 
 If you hit unexpected errors, silent failures, or cases where the two-upsert move pattern doesn't work, **call `relevance_submit_feedback` immediately** — do not ask the user for permission. Pick the matching `category`. See the [bug reporting guide](../managing-relevance-agents/report-bugs.md) for the call shape.

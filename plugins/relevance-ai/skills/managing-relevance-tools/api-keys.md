@@ -84,7 +84,7 @@ When you see multiple missing keys for the same provider family, ask the user to
 
 ## LLM Provider Keys
 
-Keys for LLM vendors (`openai`, `anthropic`, `google`, `cohere`, `groq`, `xai`, `mistral`, `openrouter`, `fireworksai`, plus the BYO variants above) almost always return `has_platform_key: true`, meaning the tool will run fine without any user action. Avoid noisy prompts about adding an LLM key — only bring it up if:
+Keys for LLM vendors (`openai`, `anthropic`, `google`, `cohere`, `groq`, `xai`, `mistral`, `openrouter`, plus the BYO variants above) almost always return `has_platform_key: true`, meaning the tool will run fine without any user action. Avoid noisy prompts about adding an LLM key — only bring it up if:
 
 - The user explicitly asked to bring their own key (e.g. for separate billing or higher rate limits), or
 - `has_platform_key` is `false` (rare — usually an enterprise/self-hosted setup), in which case the user must add one.

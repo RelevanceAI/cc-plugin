@@ -25,7 +25,7 @@ Quick reference for the most commonly used tool-step transformations in Relevanc
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `search`        | Semantic ("knowledge search") over a knowledge base. Source param `dataset_id` must be a knowledge set: `knowledge:<id>` or a `content_type: "knowledge_set"` input — a bare dataset name fails. See [patterns.md](patterns.md#knowledge-search-over-a-knowledge-set) |
 | `retrieve_data` | Fetch records from Relevance AI datasets                                                                                                                                                                                                                              |
-| `bulk_update`   | Update multiple dataset records at once                                                                                                                                                                                                                               |
+| `bulk_update`   | Upsert dataset records by `_id`. ⚠️ Replaces each matched document **wholesale** — fields you omit from a document are dropped, not merged. There is no partial-merge option; read the record first and re-send all fields you want to keep.                          |
 
 ## API Calls
 
@@ -33,6 +33,89 @@ Quick reference for the most commonly used tool-step transformations in Relevanc
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `api_call`           | Make HTTP requests to **external** APIs (no auth injection)                                                                                                             |
 | `relevance_api_call` | Make HTTP requests to **Relevance platform** APIs (auto-injects caller's auth). Use for platform proxy endpoints like `/replicate/*`, `/knowledge/*`, `/agents/*`, etc. |
+
+### Per-provider API-call steps — the escape hatch for "there's no step for that"
+
+Most integrated providers ship a **generic authenticated API-call step** alongside their
+action-specific steps. It handles auth for you, so it reaches **any endpoint the connected
+account's scopes permit** — including actions that have no dedicated step.
+
+> **When no action-specific step exists for what you need, reach for the provider's `*_api_call`
+> step** — see [the step-type ladder](transformations.md#picking-a-step-type-the-ladder).
+
+There are 86 native ones. Naming is `{provider}_api_call` or `{provider}_native_api_call`, sometimes
+with a `_v2` suffix (prefer the highest version). A representative sample:
+
+| Provider                              | Transformation                                                                                                                  |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Google                                | `google_api_call_v2` (Gmail, Calendar, Tasks, …)                                                                                |
+| Microsoft                             | `microsoft_api_call`, `microsoft_outlook_native_api_call`                                                                       |
+| Slack                                 | `slack_api_call`                                                                                                                |
+| HubSpot                               | `hubspot_api_call`                                                                                                              |
+| Salesforce                            | `salesforce_api_call`, `salesforce_soql_api_call`                                                                               |
+| Notion                                | `notion_native_api_call`                                                                                                        |
+| Linear                                | `linear_native_api_call`                                                                                                        |
+| Jira                                  | `jira_native_api_call`                                                                                                          |
+| GitHub                                | `github_native_api_call`                                                                                                        |
+| Airtable                              | `airtable_native_api_call`                                                                                                      |
+| Zendesk                               | `zendesk_native_api_call`                                                                                                       |
+| Google Sheets / Drive / Docs / Slides | `google_sheets_native_api_call`, `google_drive_native_api_call`, `google_docs_native_api_call`, `google_slides_native_api_call` |
+
+**To find one for any provider**, browse the integration tag and read the `native` results:
+`relevance_list_transformations({ integration: "<Provider>" })`.
+
+> ⚠️ **Do not add `category: "api_call"` to narrow this.** ~93% of the whole catalogue carries that
+> tag (every third-party action step does), so it filters nothing — and for third-party-backed
+> providers it actively _excludes_ the generic step you're hunting, because those generic configs
+> carry no integration tag. If `integration:` doesn't surface it, try a one-word `search` for the
+> provider name instead: these steps are named `"<Provider> API call"`.
+
+### ⚠️ `path` vs `url` — check the schema, don't assume
+
+These steps do **not** share one parameter shape, and every one sets
+`additionalProperties: false`, so passing the wrong parameter is **rejected outright, not ignored**:
+
+| Shape                                           | Count | Examples                                                                                 |
+| ----------------------------------------------- | ----- | ---------------------------------------------------------------------------------------- |
+| relative **`path`**, joined to a fixed base URL | 72    | `slack_api_call`, `hubspot_api_call`, `notion_native_api_call`, `github_native_api_call` |
+| full **`url`**                                  | 11    | `google_api_call_v2`, `google_api_call`, `elevenlabs_api_call`, `webflow_api_call`       |
+
+Some also need an extra tenant/host param — `jira_native_api_call` requires `site_id`, and the
+Freshdesk / Databricks / Supabase steps need their subdomain or workspace URL.
+
+**So always call `relevance_get_transformation` before setting `params`.** Both shapes below are
+correct for their own step and wrong for the other:
+
+```typescript
+// `url` shape — google_api_call_v2 takes a FULL url (required: url, method, oauth_account_id).
+// Worked example: listing Google Calendar events, which has no dedicated native step
+// (the Google Calendar natives are only check_google_calendar_v2 / create_google_calendar_event_v2).
+{
+  name: "get_calendar_events",
+  transformation: "google_api_call_v2",
+  params: {
+    oauth_account_id: "{{params.google_account}}",
+    method: "GET",
+    url: "https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={{params.start}}&timeMax={{params.end}}&singleEvents=true&orderBy=startTime"
+  },
+  output: { events: "{{response_body.items}}" }
+}
+
+// `path` shape — slack_api_call takes a RELATIVE path (base url https://slack.com/api is fixed).
+// Passing `url` here fails schema validation.
+{
+  name: "list_channels",
+  transformation: "slack_api_call",
+  params: {
+    oauth_account_id: "{{params.slack_account}}",
+    method: "GET",
+    path: "/conversations.list"
+  },
+  output: { channels: "{{response_body.channels}}" }
+}
+```
+
+**Output (both shapes):** `{{response_body}}`, `{{status}}`, `{{response_headers}}`, `{{url}}`.
 
 ## Web & Scraping
 
@@ -90,7 +173,7 @@ Quick reference for the most commonly used tool-step transformations in Relevanc
 
 | Name                    | Description                     |
 | ----------------------- | ------------------------------- |
-| `send_email_sendgrid`   | Send emails via SendGrid        |
+| `send_sendgrid_email`   | Send emails via SendGrid        |
 | `send_gmail_email_v2`   | Send emails via Gmail (OAuth)   |
 | `send_outlook_email_v2` | Send emails via Outlook (OAuth) |
 
@@ -113,13 +196,13 @@ Quick reference for the most commonly used tool-step transformations in Relevanc
 
 ## Document Processing
 
-| Name                 | Description                                                    |
-| -------------------- | -------------------------------------------------------------- |
-| `pdf_to_text`        | Extract text from PDF files (with optional OCR)                |
-| `file_to_text`       | Extract text from various file types (PDF, Word, Excel, audio) |
-| `reducto_parse`      | Parse documents with Reducto                                   |
-| `mistral_ocr`        | OCR using Mistral's vision models                              |
-| `firecrawl_api_call` | Web scraping and crawling via Firecrawl                        |
+| Name            | Description                                                    |
+| --------------- | -------------------------------------------------------------- |
+| `pdf_to_text`   | Extract text from PDF files (with optional OCR)                |
+| `file_to_text`  | Extract text from various file types (PDF, Word, Excel, audio) |
+| `reducto_parse` | Parse documents with Reducto                                   |
+| `mistral_ocr`   | OCR using Mistral's vision models                              |
+| `firecrawl`     | Web scraping and crawling via Firecrawl                        |
 
 ## Communication
 
@@ -161,25 +244,27 @@ Quick reference for the most commonly used tool-step transformations in Relevanc
 
 ## Quick Selection Guide
 
-| Need to...                              | Use                                          |
-| --------------------------------------- | -------------------------------------------- |
-| Generate/analyze text                   | `prompt_completion`                          |
-| Analyze images                          | `prompt_completion_vision`                   |
-| Search your docs                        | `search` (needs a `knowledge:<id>` source)   |
-| Scrape a website                        | `browserless_scrape` or `firecrawl_api_call` |
-| Advanced scraping (social, e-commerce)  | `run_apify_dynamic`                          |
-| Generate video/image/audio              | `run_replicate_dynamic`                      |
-| Send LinkedIn messages                  | `linkedin_action` (Unipile)                  |
-| Get LinkedIn data                       | `get_linkedin_profile`                       |
-| Call an external API                    | `api_call`                                   |
-| Call Relevance platform API (with auth) | `relevance_api_call`                         |
-| Search Google                           | `serper_google_search`                       |
-| Run custom Python                       | `python_code_transformation`                 |
-| Run custom JS                           | `js_code_transformation`                     |
-| If/else logic                           | `branch`                                     |
-| Process a list                          | `loop`                                       |
-| Send email                              | `send_email_sendgrid`                        |
-| Wait/pause                              | `delay`                                      |
+| Need to...                              | Use                                                                 |
+| --------------------------------------- | ------------------------------------------------------------------- |
+| Generate/analyze text                   | `prompt_completion`                                                 |
+| Analyze images                          | `prompt_completion_vision`                                          |
+| Search your docs                        | `search` (needs a `knowledge:<id>` source)                          |
+| Scrape a website                        | `browserless_scrape` or `firecrawl`                                 |
+| Advanced scraping (social, e-commerce)  | `run_apify_dynamic`                                                 |
+| Generate video/image/audio              | `run_replicate_dynamic`                                             |
+| Send LinkedIn messages                  | `linkedin_action` (Unipile)                                         |
+| Get LinkedIn data                       | `get_linkedin_profile`                                              |
+| Call an integrated provider's API       | `{provider}_api_call` (auth injected — prefer this over `api_call`) |
+| Call an external API                    | `api_call`                                                          |
+| Call Relevance platform API (with auth) | `relevance_api_call`                                                |
+| Run an existing tool as a step          | `run_chain`                                                         |
+| Search Google                           | `serper_google_search`                                              |
+| Run custom Python                       | `python_code_transformation`                                        |
+| Run custom JS                           | `js_code_transformation`                                            |
+| If/else logic                           | `branch`                                                            |
+| Process a list                          | `loop`                                                              |
+| Send email                              | `send_sendgrid_email`                                               |
+| Wait/pause                              | `delay`                                                             |
 
 ---
 

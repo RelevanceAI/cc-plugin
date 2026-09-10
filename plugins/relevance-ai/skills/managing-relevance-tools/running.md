@@ -7,31 +7,18 @@ description: Run and debug tools — sync/async invocation, polling pacing, per-
 
 How to execute tools, handle async operations, and debug issues.
 
-## Synchronous Execution
+## Running a Tool
 
-For tools that complete quickly:
-
-```typescript
-relevance_run_tool({
-  studio_id: 'my-tool',
-  params: { query: 'test input' },
-});
-```
-
-Returns the tool output directly.
-
-## Asynchronous Execution
-
-For long-running tools:
+Tools run asynchronously: trigger the run, then poll for the result. (Same trigger + poll model as agents and workforces.)
 
 ```typescript
-// 1. Start async execution
-const { job_id } = await relevance_trigger_tool_async({
+// 1. Trigger the run — returns a job_id immediately
+const { job_id } = await relevance_trigger_tool({
   studio_id: 'my-tool',
   params: { query: 'test input' },
 });
 
-// 2. Poll for results — always pass wait_seconds
+// 2. Poll for the result — always pass wait_seconds
 relevance_poll_tool_result({
   studio_id: 'my-tool',
   job_id: job_id,
@@ -43,7 +30,7 @@ relevance_poll_tool_result({
 
 Always pass `wait_seconds` (default 50s, max 300s). The platform-API holds the connection open until the tool reaches a terminal `type` (`complete` or `failed`) or the wait window elapses, so one call covers many internal polls.
 
-If a poll returns a non-terminal `type` (`inprogress` or `timeout`), **re-poll** — do NOT call `relevance_trigger_tool_async` again. Re-triggering starts a fresh job; the existing one is still running.
+If a poll returns a non-terminal `type` (`inprogress` or `timeout`), **re-poll** — do NOT call `relevance_trigger_tool` again. Re-triggering starts a fresh job; the existing one is still running.
 
 ### Poll Response Types
 
@@ -71,10 +58,11 @@ relevance_get_latest_tool_run({
 ### 1. Test with Minimal Input (smoke test)
 
 ```typescript
-relevance_run_tool({
+const { job_id } = await relevance_trigger_tool({
   studio_id: 'my-tool',
   params: { query: 'simple test' },
 });
+relevance_poll_tool_result({ studio_id: 'my-tool', job_id, wait_seconds: 50 });
 ```
 
 ### 1b. Test the real path with the full argument set (after edits)
@@ -82,12 +70,13 @@ relevance_run_tool({
 Run the tool the way the consumer invokes it — every param it sends on the path that matters — and check the side effect landed, not just that the call returned:
 
 ```typescript
-relevance_run_tool({
+const { job_id } = await relevance_trigger_tool({
   studio_id: 'my-tool',
   params: {
     /* EVERY field the consumer sends on the real path */
   },
 });
+relevance_poll_tool_result({ studio_id: 'my-tool', job_id, wait_seconds: 50 });
 ```
 
 If the tool is consumed by an agent, prefer running an eval / a real agent conversation so the test reflects the arguments the agent actually assembles — see [relevance-evals](../relevance-evals/SKILL.md).

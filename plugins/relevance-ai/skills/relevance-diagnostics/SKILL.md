@@ -24,6 +24,7 @@ Diagnostics **consumes** the analytics, eval, and error read tools rather than r
 
 - **Macro vs micro.** Macro is the cheap, project-wide snapshot that always runs first; micro is the gated, per-resource deep-dive (see [Guardrails](#guardrails)).
 - **Resource.** An agent, a workforce, or a tool. `relevance_get_analytics_resource_breakdown` covers all three via `resource_type`. Note: the eval tools' `resource_type` (`relevance_list_performance_dashboards`, `relevance_list_performance_dashboard_runs`) accepts only `agent | workforce` — there are no tool-scoped dashboards.
+- **Built-in agents.** Check `is_built_in` and `configuration_note` before recommending edits. Their stored prompt/actions can be empty because the platform supplies them at runtime; do not diagnose these as missing configuration or recommend editing them. For a workforce node, inspect `relevance_get_agent_tools` with `workforce_context: { workforce_id, node_id }` to include graph-attached tools and sub-agents. User-built workforce inputs/edges can be changed; synthesized chat delegation is platform-managed.
 - **Severity.** Each finding is ranked **High / Medium / Low** by impact (error rate × volume of still-occurring errors, escalations, blocked users).
 - **Two entry points, one skill.** _Project-wide_ ("analyse my project") runs the full ladder. _Direct single-resource_ ("diagnose this agent") skips the ladder and goes straight to micro.
 - **Recency & versions.** Error data describes the config that was live _when each error happened_, so a finding may already be fixed. Before reporting one, ask: did this error happen _again_ after the resource last changed, given something has run since? That recurrence check is what decides whether it's still open — see [Step 3b](#step-3b--cross-check-recent-edits--versions).
@@ -196,7 +197,7 @@ Run the [Step 3b recency cross-check](#step-3b--cross-check-recent-edits--versio
 
 ## Findings output format
 
-Emit a human-facing Markdown report. Severity is **High / Medium / Low**. Name the mutating tool that would apply each fix, but don't apply it.
+Emit a human-facing Markdown report. Severity is **High / Medium / Low**. Name a mutating tool only when the affected resource is user-editable; otherwise give the support/reporting path. Don't apply the fix.
 
 ```
 ## Diagnosis — <scope> · <window>
@@ -207,7 +208,7 @@ Emit a human-facing Markdown report. Severity is **High / Medium / Low**. Name t
    - Evidence: <**post-change** error_count (of total in window), error_rate, error category; eval pass-rate when available>
    - Likely cause: <root cause>
    - Recency: <change date + verdict — e.g. "9 of 12 errors landed after the Mar 3 change; traffic since: yes → confirmed open">
-   - Recommended fix: <concrete action + the mutating tool that would apply it>
+   - Recommended fix: <user-owned action + applicable tool, or platform issue to report to support>
 2. **[Medium] …**
 
 ### Likely already resolved
@@ -219,16 +220,19 @@ Emit a human-facing Markdown report. Severity is **High / Medium / Low**. Name t
 
 ### Next steps
 - <offer to drill deeper>
-- <for a production agent, or after the user acts on a fix — recommend a periodic check-up so regressions surface early>
+- <after the user applies a fix — verify it (eval run against the edited draft, per `relevance-evals`'s "Verifying a fix" runbook) before treating the finding as resolved>
+- <for a resource with no monitoring/alerting — recommend setting it up; a periodic check-up is the interim safety net>
 ```
 
 Only put **confirmed-open** issues (the error recurred after the last change, with traffic since) in **Findings (ranked)**, ordered by the **post-change** count; route non-recurring / draft-addressed issues to **Likely already resolved**, and changed-but-untested resources to **Blind spots**, per [Step 3b](#step-3b--cross-check-recent-edits--versions). Omit any section when it's empty.
 
 When the window is clean (no errors, no escalations), still emit the report — say so explicitly under **Summary** and use **Blind spots** to flag missing observability (e.g. active agents with no performance dashboard) so the user knows what _wasn't_ visible.
 
-## Recommend a periodic check-up
+## After a fix, and ongoing monitoring
 
-For a production agent — or right after the user acts on a fix — recommend re-checking on a cadence so regressions surface early rather than in front of end users. If a performance dashboard exists, point at it; if not, recommend setting one up (see `relevance-evals`). If your harness can schedule a future check (a wake-up message or reminder), offer to schedule the re-check; if it can't, tell the user when to come back and what to look at. The concrete scheduling and notification mechanics are harness-specific — this skill only recommends the check-up.
+When the user acts on a recommended fix, don't treat the finding as resolved on the edit alone — verify it with an eval run against the edited draft: load `relevance-evals` and follow its "Verifying a fix" runbook.
+
+For ongoing coverage, monitoring beats scheduled check-ups: a performance dashboard with an alert reports regressions automatically, so when one exists, point at it and don't recommend a check-up. When you already fetched the agent/workforce, its `quality` block (`has_performance_dashboard`, `performance_dashboard_active`, `has_evals`) answers "does monitoring exist / is it live" without a separate list call. Only when no monitoring/alerting exists: recommend setting it up (see `relevance-evals`), and offer a periodic re-check as the interim safety net — if your harness can schedule a future check (a wake-up message or reminder), offer to schedule it; if it can't, tell the user when to come back and what to look at. The concrete scheduling and notification mechanics are harness-specific — this skill only recommends the check-up.
 
 ## Dedicated Tools
 
@@ -276,7 +280,7 @@ A 100% `error_rate` on 1–2 tasks is noise, not a finding — rank by `error_co
 
 ### No performance dashboards exist
 
-No dashboards = production isn't monitored. That's a **blind spot**, not a hard failure — flag it under Blind spots and offer to set one up (load `relevance-evals`).
+No dashboards = production isn't monitored. That's a **blind spot**, not a hard failure — flag it under Blind spots and offer to set one up (load `relevance-evals`). A fetched agent/workforce's `quality.has_performance_dashboard` flags this directly — no separate list call needed to detect the gap.
 
 ### Flagging an error a recent edit already fixed
 

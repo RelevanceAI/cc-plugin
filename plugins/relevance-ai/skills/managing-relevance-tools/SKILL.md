@@ -13,6 +13,8 @@ Skill for creating, configuring, running, and debugging Relevance AI tools (stud
 
 > **⚠️ OAuth accounts are inputs, not text fields:** When a tool hits a user-authenticated API (HubSpot, Gmail, Slack, …), the account MUST be a `params_schema` input with `metadata.content_type: "oauth_account"`, passed to steps as `oauth_account_id: "{{params.<name>}}"`. Never declare it as a plain `type: "string"` field or paste a raw account id — the step then gets an un-credentialed string and fails. See [oauth.md](oauth.md).
 
+> **⚠️ Credentials never go in a tool definition or in the conversation:** for Relevance platform calls use `relevance_api_call` — auth is auto-injected, so there is no key to supply. For third parties prefer the transformation's own auth, then an `oauth_account` or `api_key` input. Never a param `default` (`hidden` is not a real field — the value reaches the model, run history, project viewers, and public share links), never a raw key in a code step, and never ask the user to paste a key into chat — send them the `setup_url` from `relevance_check_tool_integration_requirements` instead. See [creating.md](creating.md#using-secrets-in-code-steps).
+
 > **⚠️ Knowledge search reads a knowledge set, not a dataset:** the knowledge-search step (`transformation: "search"`) takes its source from `dataset_id`, which MUST resolve to a `knowledge:<knowledge_set_id>` value (or `knowledge:*` for all knowledge). Expose the source as a `params_schema` input with `metadata.content_type: "knowledge_set"` (renders the knowledge-set picker, which produces the `knowledge:`-prefixed value), or hardcode `dataset_id: "knowledge:<id>"` (get ids from `relevance_list_knowledge_sets`). Never a plain `type: "string"` input defaulting to a bare dataset name — it "looks filled in" but the step fails at run time with _"Search can only be performed on a knowledge set."_ See the [Knowledge Search pattern](patterns.md#knowledge-search-over-a-knowledge-set).
 
 ## When to Use
@@ -155,9 +157,8 @@ The agents handle reasoning; tools handle external actions. In evals, you simula
 | `relevance_set_tool_output`                 | Edit the tool's runtime output map (`transformations.output`) and `output_schema` — saves to DRAFT. See [outputs.md](outputs.md) |
 | `relevance_create_tool_from_transformation` | Create tool from transformation with auto-generated config                                                                       |
 | `relevance_publish_tool`                    | Publish tool draft. Always shows an approval card.                                                                               |
-| `relevance_run_tool`                        | Execute tool synchronously (accepts `version` for testing the draft)                                                             |
-| `relevance_trigger_tool_async`              | Execute tool asynchronously (accepts `version`)                                                                                  |
-| `relevance_poll_tool_result`                | Poll async job status                                                                                                            |
+| `relevance_trigger_tool`                    | Run a tool — returns a `job_id` to poll (accepts `version` for testing the draft)                                                |
+| `relevance_poll_tool_result`                | Poll for the tool result using the `job_id`                                                                                      |
 | `relevance_get_latest_tool_run`             | Get latest run ID                                                                                                                |
 | `relevance_list_tool_versions`              | List version history for a tool                                                                                                  |
 | `relevance_get_tool_version`                | Get a specific version's config                                                                                                  |
@@ -167,14 +168,23 @@ The agents handle reasoning; tools handle external actions. In evals, you simula
 
 ## Finding the Right Tool: Search Order
 
-When looking for tools to accomplish a task, follow this search order **unless the user has explicitly asked you to build from scratch — in that case, skip straight to creating a new one**:
+This ladder applies **both** when looking for a tool to attach to an agent **and** when looking for
+a step to put inside a tool you're building — rungs 1–2 are addable as a step via `run_chain`.
+Follow it **unless the user has explicitly asked you to build from scratch — in that case, skip
+straight to creating a new one**:
 
 1. **Search project tools** — `relevance_list_tools({ query: "..." })` — Already built and configured
 2. **Search public/community tools** — `relevance_search_public_tools({ query: "..." })` — Pre-built, sorted by popularity
 3. **Search marketplace listings** — `relevance_search_marketplace_listings({ query: "...", entityType: "tool" })` — Complete solutions (agent + tools bundled)
-4. **Search transformations** — `relevance_list_transformations({ query: "..." })` — 8000+ integrations, use `relevance_create_tool_from_transformation` to wrap
+4. **Search transformations** — `relevance_list_transformations({ search: "..." })` — 8000+ integrations, use `relevance_create_tool_from_transformation` to wrap
 
-**Tip:** Use multiple diverse search queries per tier (e.g., "scrape", "extract", "crawl" rather than just one term).
+> ⚠️ Note the parameter differs: tools take `query`, transformations take **`search`**.
+
+**Tip:** Issue several **single-keyword** queries per tier ("scrape", then "extract", then "crawl") rather than one long phrase. `relevance_list_transformations` requires every word of `search` to match, so a phrase like "get events from google calendar" returns nothing while "calendar" returns the set. When a search comes up empty, browse by tag instead — `{ integration: "Google" }` or `{ use_case: "Calendar" }`.
+
+**These are four separate catalogues.** A step the user can see in the builder UI may be a public
+tool step (rung 2), not a transformation (rung 4) — so an empty transformation search does not mean
+the capability is missing. See [transformations.md](transformations.md#picking-a-step-type-the-ladder).
 
 ### Prefer native transformations
 
@@ -370,7 +380,12 @@ https://app.relevanceai.com/notebook/{region}/{project}/{studioId}
 
 # Clone link
 https://app.relevanceai.com/form/{region}/{project}/clone/tool/{studioId}
+
+# Integrations (API keys + OAuth connections)
+https://app.relevanceai.com/integrations/{region}/{project}
 ```
+
+Every app URL is **section-first** — `{app}/{section}/{region}/{project}/…`; the region and project never come before the section. Prefer a `url` / `setup_url` the Relevance tools returned over constructing one; for provider-specific deep links see [api-keys.md](api-keys.md).
 
 ## Emergency Version Recovery
 

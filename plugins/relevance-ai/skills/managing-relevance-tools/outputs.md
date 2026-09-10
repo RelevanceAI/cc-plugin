@@ -124,10 +124,15 @@ The same constraint is documented from the workforce side at [`managing-relevanc
 Always re-run the draft after editing outputs:
 
 ```typescript
-relevance_run_tool({
+const { job_id } = await relevance_trigger_tool({
   studio_id: 'random-person',
   params: {},
   version: 'draft',
+});
+relevance_poll_tool_result({
+  studio_id: 'random-person',
+  job_id,
+  wait_seconds: 50,
 });
 // Confirm the response's `output` field has the expected top-level keys.
 ```

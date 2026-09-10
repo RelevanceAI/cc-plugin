@@ -44,8 +44,9 @@ Skill for creating, configuring, running, and debugging Relevance AI agents.
 | `relevance_list_agent_tasks`           | List recent tasks for an agent                                                                                                                                                                                       |
 | `relevance_list_agent_task_messages`   | List raw messages in an agent task                                                                                                                                                                                   |
 | `relevance_get_agent_task_metadata`    | Get task metadata: status, credits, runtime                                                                                                                                                                          |
-| `relevance_list_agent_triggers`        | List agent triggers                                                                                                                                                                                                  |
-| `relevance_create_trigger`             | Create trigger                                                                                                                                                                                                       |
+| `relevance_list_agent_triggers`        | List agent triggers — the source of every `document_id`                                                                                                                                                              |
+| `relevance_create_trigger`             | Add a trigger (omit `document_id`) or edit one (pass it). An agent can hold many triggers, including several recurring schedules                                                                                     |
+| `relevance_update_trigger_status`      | Pause (`paused`) or resume (`in_progress`) a trigger — use instead of delete-and-recreate                                                                                                                            |
 | `relevance_delete_trigger`             | Delete trigger                                                                                                                                                                                                       |
 | `relevance_list_oauth_accounts`        | List OAuth accounts for triggers                                                                                                                                                                                     |
 | `relevance_submit_feedback`            | Report a bug or suggest an improvement — call proactively after errors or friction                                                                                                                                   |
@@ -71,7 +72,7 @@ Edits save to a draft until you publish. **Every edit saves to a draft. Publishi
 
 - **Creating a new agent** (`relevance_create_agent`): saves to a DRAFT. The new agent has a `draft_version_id` and no `active_version_id` until you call `relevance_publish_agent`. `relevance_trigger_agent` defaults to draft, so the agent is testable as soon as creation returns.
 - **Updating an existing agent** (`relevance_update_agent` or `relevance_attach_tools_to_agent`): saves to a DRAFT. The previously-published "live" version remains untouched until you explicitly publish. `relevance_update_agent` deep-merges your patch into the current draft, so you only need to send the fields you want to change.
-- **Going live**: call `relevance_publish_agent`. This always shows an approval card to the user — even when auto-approve is on. Do not call publish without first asking the user "want me to publish this?" in chat. Always pass a concise `version_description` (and `version_name`) — a clear, one-line summary of what changed and why, easy to understand, so version history is a useful trail. Reuse the summary you gave the user; never leave it blank.
+- **Going live**: call `relevance_publish_agent`. Publishing is irreversible — do not call it without first asking the user "want me to publish this?" in chat. Always pass a concise `version_description` (and `version_name`) — a clear, one-line summary of what changed and why, easy to understand, so version history is a useful trail. Reuse the summary you gave the user; never leave it blank. If the agent has a pre-publish check config (see the `relevance-evals` skill), publishing runs those checks against the draft and auto-publishes on pass — poll the returned `check_id` with `relevance_poll_pre_publish_check`.
 - **Testing the draft**: `relevance_trigger_agent` (and `_sync`) defaults to the draft when one exists, so you can run the in-progress version without affecting production. The response includes `triggered_version` so you can tell the user which version actually ran.
 - **Restoring a previous version**: `relevance_list_agent_versions` to find the version_id, `relevance_get_agent_version` to inspect it, then `relevance_restore_agent_version` to bring it back as a fresh draft (followed by `relevance_publish_agent` to make it live).
 
@@ -183,7 +184,7 @@ See [creating.md - Action IDs](creating.md#action-ids-vs-studio-ids) for full wo
 - [phantom-tools.md](phantom-tools.md) - Phantom tools reference (thinking, memory, tags, etc.)
 - [system-prompts.md](system-prompts.md) - Writing effective prompts
 - [memory.md](memory.md) - Agent memory configuration and usage
-- [triggers.md](triggers.md) - Email, LinkedIn, webhook triggers
+- [triggers.md](triggers.md) - Email, LinkedIn, webhook and recurring/scheduled triggers; writing the message a schedule sends
 - [running.md](running.md) - Running and testing agents
 - [troubleshooting.md](troubleshooting.md) - Common issues and fixes
 
@@ -201,6 +202,8 @@ https://app.relevanceai.com/agents/{region}/{project}/{agentId}/{taskId}
 # Clone link
 https://app.relevanceai.com/form/{region}/{project}/clone/agent/{agentId}
 ```
+
+Every app URL is **section-first** — `{app}/{section}/{region}/{project}/…`; the region and project never come before the section. Prefer a `url` the Relevance tools returned over constructing one.
 
 ## Reporting Issues — proactive
 

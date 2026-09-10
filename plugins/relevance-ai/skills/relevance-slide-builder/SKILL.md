@@ -17,9 +17,22 @@ The slide builder lets you create and manage HTML-based presentations programmat
 - **Versions**: Automatic version history for slideshows with restore capability
 - **Export**: Generate PDFs or images from slideshows
 
-## No Dedicated MCP Tools
+## There are no slide-builder tools — read this first
 
-The slide builder uses `relevance_api_request` since there are no dedicated MCP tools. All examples below use this approach.
+The slide builder has **no Relevance tools at all**. Nothing in this skill can be called directly;
+every section below documents an HTTP endpoint, written as `METHOD /path`. Paths are relative to
+your region's API base.
+
+You have two ways to actually reach them:
+
+1. **Build a tool with a `relevance_api_call` step** and run that. `relevance_api_call` is a
+   transformation (a tool step), not a tool you can invoke on its own — it takes a relative `path`
+   and a method, and the caller's auth is injected automatically, so there is no key to supply. See
+   the `managing-relevance-tools` skill for how to add a step and set the tool's output.
+2. **Use the Relevance app UI**, which is usually the faster answer for one-off slide work.
+
+Tell the user which of the two you're doing before you start — do not present slide operations as
+something you can do in a single call.
 
 ---
 
@@ -29,91 +42,83 @@ Brand kits store visual identity settings — colors, fonts, logos, tone, and in
 
 ### List Brand Kits
 
-```typescript
-const { branding_kits } = await relevance_api_request({
-  endpoint: '/branding_kits',
-  method: 'GET',
-});
+```http
+GET /branding_kits
 ```
+
+Returns `{ branding_kits }`.
 
 ### Create Brand Kit
 
-```typescript
-const { branding_kit_id } = await relevance_api_request({
-  endpoint: '/branding_kits',
-  method: 'POST',
-  body: {
-    name: 'Corporate Brand',
-    colors: [
-      { hexcode: '#1A1A2E', description: 'Primary dark' },
-      { hexcode: '#FFD700', description: 'Accent gold' },
-    ],
-    logos: [{ url: 'https://example.com/logo.png', description: 'Main logo' }],
-    inspiration_photos: [
-      { url: 'https://example.com/photo.jpg', description: 'Hero image' },
-    ],
-    heading: { family: 'Inter', size: 48 },
-    title: { family: 'Inter', size: 36 },
-    subtitle: { family: 'Inter', size: 24 },
-    body: { family: 'Inter', size: 16 },
-    brand_tone: 'Professional, confident, modern',
-    brand_voice: 'Clear, direct, authoritative',
-    slide_instructions:
-      'Use clean layouts with ample whitespace. Accent color for CTAs only.',
-  },
-});
+```http
+POST /branding_kits
+
+{
+  "name": "Corporate Brand",
+  "colors": [
+    { "hexcode": "#1A1A2E", "description": "Primary dark" },
+    { "hexcode": "#FFD700", "description": "Accent gold" }
+  ],
+  "logos": [{ "url": "https://example.com/logo.png", "description": "Main logo" }],
+  "inspiration_photos": [
+    { "url": "https://example.com/photo.jpg", "description": "Hero image" }
+  ],
+  "heading": { "family": "Inter", "size": 48 },
+  "title": { "family": "Inter", "size": 36 },
+  "subtitle": { "family": "Inter", "size": 24 },
+  "body": { "family": "Inter", "size": 16 },
+  "brand_tone": "Professional, confident, modern",
+  "brand_voice": "Clear, direct, authoritative",
+  "slide_instructions": "Use clean layouts with ample whitespace. Accent color for CTAs only."
+}
 ```
+
+Returns `{ branding_kit_id }`.
 
 ### Get Brand Kit
 
-```typescript
-const kit = await relevance_api_request({
-  endpoint: `/branding_kit/${brandingKitId}`,
-  method: 'GET',
-});
+```http
+GET /branding_kit/:branding_kit_id
 ```
+
+> **Note the singular `branding_kit`.** Only this one endpoint is singular — every other brand-kit
+> path is `/branding_kits`. Getting it wrong 404s.
 
 ### Update Brand Kit
 
 Partial update — only provided fields are changed.
 
-```typescript
-await relevance_api_request({
-  endpoint: `/branding_kits/${brandingKitId}`,
-  method: 'PUT',
-  body: {
-    name: 'Updated Brand',
-    brand_tone: 'Friendly and approachable',
-  },
-});
+```http
+PUT /branding_kits/:branding_kit_id
+
+{
+  "name": "Updated Brand",
+  "brand_tone": "Friendly and approachable"
+}
 ```
 
 ### Delete Brand Kit
 
-```typescript
-await relevance_api_request({
-  endpoint: `/branding_kits/${brandingKitId}`,
-  method: 'DELETE',
-});
+```http
+DELETE /branding_kits/:branding_kit_id
 ```
 
 ### Generate Brand Kit from Images (AI)
 
 Analyzes 1-10 images to extract colors, fonts, and brand elements automatically.
 
-```typescript
-const generatedKit = await relevance_api_request({
-  endpoint: '/branding_kits/generate',
-  method: 'POST',
-  body: {
-    image_urls: [
-      'https://example.com/screenshot1.png',
-      'https://example.com/screenshot2.png',
-    ],
-  },
-});
-// Returns a full BrandingKit object with extracted colors, fonts, tone, etc.
+```http
+POST /branding_kits/generate
+
+{
+  "image_urls": [
+    "https://example.com/screenshot1.png",
+    "https://example.com/screenshot2.png"
+  ]
+}
 ```
+
+Returns a full BrandingKit object with extracted colors, fonts, tone, etc.
 
 ---
 
@@ -125,79 +130,72 @@ Slideshows are ordered collections of HTML slides.
 
 Each slide is an HTML string keyed by a slide ID. The `order` array controls presentation order.
 
-```typescript
-const { slideshow_id } = await relevance_api_request({
-  endpoint: '/slide_show',
-  method: 'POST',
-  body: {
-    content: {
-      'slide-1': '<html><body><h1>Title Slide</h1></body></html>',
-      'slide-2':
-        '<html><body><h1>Key Points</h1><ul><li>Point A</li></ul></body></html>',
-    },
-    order: ['slide-1', 'slide-2'],
+```http
+POST /slide_show
+
+{
+  "content": {
+    "slide-1": "<html><body><h1>Title Slide</h1></body></html>",
+    "slide-2": "<html><body><h1>Key Points</h1><ul><li>Point A</li></ul></body></html>"
   },
-});
+  "order": ["slide-1", "slide-2"]
+}
 ```
+
+Returns `{ slideshow_id }`.
 
 > **Tip:** Each slide is a full HTML document. Use inline `<style>` tags for styling. Google Fonts via `@import url(...)` in a `<style>` block work well.
 
 ### Get Slideshow
 
-```typescript
-const slideshow = await relevance_api_request({
-  endpoint: `/slide_show/${slideshowId}`,
-  method: 'GET',
-});
-// Returns: { slideshow_id, content, order, public, most_recent_conversation_id? }
+```http
+GET /slide_show/:slideshow_id
 ```
+
+Returns `{ slideshow_id, content, order, public, most_recent_conversation_id? }`.
 
 ### List Slideshows
 
-```typescript
-const { slideshows } = await relevance_api_request({
-  endpoint: '/slide_show?page=1&page_size=20',
-  method: 'GET',
-});
-// Each item: { slideshow_id, first_slide_html, most_recent_conversation_id? }
+```http
+GET /slide_show?page=1&page_size=20
 ```
+
+Returns `{ slideshows }`, each item `{ slideshow_id, first_slide_html, most_recent_conversation_id? }`.
 
 ### Reorder Slides
 
 Must include all existing slide IDs in the new order.
 
-```typescript
-const { order } = await relevance_api_request({
-  endpoint: `/slide_show/${slideshowId}/reorder`,
-  method: 'POST',
-  body: { slide_order: ['slide-2', 'slide-1'] },
-});
+```http
+POST /slide_show/:slideshow_id/reorder
+
+{ "slide_order": ["slide-2", "slide-1"] }
 ```
+
+Returns `{ order }`.
 
 ### Update Visibility
 
-```typescript
-await relevance_api_request({
-  endpoint: `/slide_show/${slideshowId}/visibility`,
-  method: 'PATCH',
-  body: { public: true },
-});
+```http
+PATCH /slide_show/:slideshow_id/visibility
+
+{ "public": true }
 ```
 
 ### Export Slideshow
 
 Export as PDF or individual images. Returns temporary download URLs.
 
-```typescript
-const { temporary_download_urls } = await relevance_api_request({
-  endpoint: `/slide_show/${slideshowId}/export`,
-  method: 'POST',
-  body: {
-    type: 'pdf_standard', // or 'pdf_images' or 'images'
-    // slide_ids: ['slide-1'], // Optional — omit to export all slides
-  },
-});
+```http
+POST /slide_show/:slideshow_id/export
+
+{
+  "type": "pdf_standard"
+}
 ```
+
+Returns `{ temporary_download_urls }`. Add `"slide_ids": ["slide-1"]` to export a subset — omit it
+for all slides.
 
 | Export Type    | Description                                        |
 | -------------- | -------------------------------------------------- |
@@ -213,50 +211,40 @@ Templates are saved snapshots of slideshows that can be reused.
 
 ### List Templates
 
-```typescript
-const { templates } = await relevance_api_request({
-  endpoint: '/slide_show_template',
-  method: 'GET',
-});
+```http
+GET /slide_show_template
 ```
+
+Returns `{ templates }`.
 
 ### Create Template from Slideshow
 
-```typescript
-await relevance_api_request({
-  endpoint: '/slide_show_template',
-  method: 'POST',
-  body: { slideshow_id: slideshowId, name: 'Quarterly Report Template' },
-});
+```http
+POST /slide_show_template
+
+{ "slideshow_id": "<slideshow-id>", "name": "Quarterly Report Template" }
 ```
 
 ### Get Template Content
 
-```typescript
-const template = await relevance_api_request({
-  endpoint: `/slide_show_template/${templateId}/content`,
-  method: 'GET',
-});
-// Returns: { slideshow_template_id, name?, content, order }
+```http
+GET /slide_show_template/:slideshow_template_id/content
 ```
+
+Returns `{ slideshow_template_id, name?, content, order }`.
 
 ### Update Template Name
 
-```typescript
-await relevance_api_request({
-  endpoint: `/slide_show_template/${templateId}`,
-  method: 'PATCH',
-  body: { name: 'New Template Name' },
-});
+```http
+PATCH /slide_show_template/:slideshow_template_id
+
+{ "name": "New Template Name" }
 ```
 
 ### Delete Template
 
-```typescript
-await relevance_api_request({
-  endpoint: `/slide_show_template/${templateId}`,
-  method: 'DELETE',
-});
+```http
+DELETE /slide_show_template/:slideshow_template_id
 ```
 
 ---
@@ -267,32 +255,28 @@ Slideshows automatically track versions. You can list, inspect, and restore prev
 
 ### List Versions
 
-```typescript
-const { versions } = await relevance_api_request({
-  endpoint: `/slide_show/${slideshowId}/versions`,
-  method: 'GET',
-});
-// Each: { id, display_id, name?, trigger_message_id?, created_at, slide_count }
+```http
+GET /slide_show/:slideshow_id/versions
 ```
+
+Returns `{ versions }`, each `{ id, display_id, name?, trigger_message_id?, created_at, slide_count }`.
 
 ### Get Version Content
 
-```typescript
-const version = await relevance_api_request({
-  endpoint: `/slide_show/${slideshowId}/versions/${versionDisplayId}`,
-  method: 'GET',
-});
-// Returns: { id, display_id, name?, content, slide_order, created_at }
+```http
+GET /slide_show/:slideshow_id/versions/:version_id
 ```
+
+Returns `{ id, display_id, name?, content, slide_order, created_at }`. The `:version_id` is the
+version's `display_id`, not its `id`.
 
 ### Restore Version
 
-```typescript
-const { success } = await relevance_api_request({
-  endpoint: `/slide_show/${slideshowId}/versions/${versionDisplayId}/restore`,
-  method: 'POST',
-});
+```http
+POST /slide_show/:slideshow_id/versions/:version_id/restore
 ```
+
+Returns `{ success }`.
 
 ---
 
@@ -311,32 +295,33 @@ const { success } = await relevance_api_request({
 
 ### Slideshow Endpoints
 
-| Method  | Endpoint                               | Description            |
-| ------- | -------------------------------------- | ---------------------- |
-| `POST`  | `/slide_show`                          | Create slideshow       |
-| `GET`   | `/slide_show`                          | List user's slideshows |
-| `GET`   | `/slide_show/:slideshow_id`            | Get slideshow          |
-| `POST`  | `/slide_show/:slideshow_id/reorder`    | Reorder slides         |
-| `PATCH` | `/slide_show/:slideshow_id/visibility` | Update visibility      |
-| `POST`  | `/slide_show/:slideshow_id/export`     | Export as PDF/images   |
+| Method  | Endpoint                                | Description            |
+| ------- | --------------------------------------- | ---------------------- |
+| `POST`  | `/slide_show`                           | Create slideshow       |
+| `GET`   | `/slide_show`                           | List user's slideshows |
+| `GET`   | `/slide_show/:slideshow_id`             | Get slideshow          |
+| `POST`  | `/slide_show/:slideshow_id/reorder`     | Reorder slides         |
+| `PATCH` | `/slide_show/:slideshow_id/visibility`  | Update visibility      |
+| `POST`  | `/slide_show/:slideshow_id/export`      | Export as PDF/images   |
+| `POST`  | `/slide_show/:slideshow_id/screenshot`  | Screenshot a slide     |
 
 ### Template Endpoints
 
-| Method   | Endpoint                           | Description                    |
-| -------- | ---------------------------------- | ------------------------------ |
-| `GET`    | `/slide_show_template`             | List templates                 |
-| `POST`   | `/slide_show_template`             | Create template from slideshow |
-| `GET`    | `/slide_show_template/:id/content` | Get template content           |
-| `PATCH`  | `/slide_show_template/:id`         | Update template name           |
-| `DELETE` | `/slide_show_template/:id`         | Delete template                |
+| Method   | Endpoint                                             | Description                    |
+| -------- | ---------------------------------------------------- | ------------------------------ |
+| `GET`    | `/slide_show_template`                               | List templates                 |
+| `POST`   | `/slide_show_template`                               | Create template from slideshow |
+| `GET`    | `/slide_show_template/:slideshow_template_id/content` | Get template content           |
+| `PATCH`  | `/slide_show_template/:slideshow_template_id`        | Update template name           |
+| `DELETE` | `/slide_show_template/:slideshow_template_id`        | Delete template                |
 
 ### Version Endpoints
 
-| Method | Endpoint                                       | Description         |
-| ------ | ---------------------------------------------- | ------------------- |
-| `GET`  | `/slide_show/:id/versions`                     | List versions       |
-| `GET`  | `/slide_show/:id/versions/:version_id`         | Get version content |
-| `POST` | `/slide_show/:id/versions/:version_id/restore` | Restore version     |
+| Method | Endpoint                                                  | Description         |
+| ------ | --------------------------------------------------------- | ------------------- |
+| `GET`  | `/slide_show/:slideshow_id/versions`                      | List versions       |
+| `GET`  | `/slide_show/:slideshow_id/versions/:version_id`          | Get version content |
+| `POST` | `/slide_show/:slideshow_id/versions/:version_id/restore`  | Restore version     |
 
 ## Brand Kit Schema
 

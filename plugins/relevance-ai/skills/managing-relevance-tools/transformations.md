@@ -247,7 +247,7 @@ Run any Apify actor (2000+ scrapers).
 - `compass/crawler-google-places` - Google Maps
 - `apify/google-search-scraper` - Deep Google search
 - `apify/instagram-scraper` - Instagram data
-- `apify/linkedin-scraper` - LinkedIn profiles
+- `johnvc/linkedin-profile-api` - LinkedIn profiles by URL (`profileUrls`)
 - `apify/website-content-crawler` - Full website crawl
 - `apify/contact-info-scraper` - Find emails/phones
 

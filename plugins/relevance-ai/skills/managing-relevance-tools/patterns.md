@@ -1,47 +1,17 @@
 ---
 title: Common Tool Patterns
-description: Reusable tool design patterns — search + analyse, scrape + extract, multi-query loops, URL processing, enrichment, conditional branching, error handling. Load when designing multi-step tools or you need worked examples.
+description: Reusable tool design patterns — search, scrape + extract, multi-query loops, URL processing, enrichment, conditional branching, error handling. Load when designing multi-step tools or you need worked examples.
 ---
 
 # Common Tool Patterns
 
 Reusable patterns for building Relevance AI tools.
 
-## Search + LLM Analysis
+Most tools are called by an agent, and the agent is already a language model, so these patterns return data and leave the judgement, the summary and the wording to its system prompt (see [Tools vs Agents](SKILL.md#tools-vs-agents-what-goes-where)). Scrape + Extract and Data Enrichment keep an LLM step because they pull fields out of text too long for the agent to read whole, and they often run with no agent, as a tool column run on every row of a knowledge table (Run tool on all rows in the app).
 
-Search for information and analyze results.
+## Search
 
-```typescript
-{
-  studio_id: "search-analyze",
-  title: "Search and Analyze",
-  params_schema: {
-    type: "object",
-    properties: {
-      query: { type: "string", title: "Query" }
-    },
-    required: ["query"]
-  },
-  transformations: {
-    steps: [
-      {
-        name: "search",
-        transformation: "serper_google_search",
-        params: { search_query: "{{params.query}}" },
-        output: { results: "{{organic}}" }
-      },
-      {
-        name: "analyze",
-        transformation: "prompt_completion",
-        params: {
-          prompt: "Analyze these search results about {{params.query}}:\n\n{{steps.search.output.results}}"
-        },
-        output: { analysis: "{{answer}}" }
-      }
-    ]
-  }
-}
-```
+See the [Quick Start](SKILL.md#quick-start-create-tool): a search step, then a code step that keeps the fields the agent needs and counts what it read. Don't add an "analyse" step; say how to analyse the results in the calling agent's system prompt.
 
 ## Knowledge Search (over a knowledge set)
 
@@ -125,7 +95,7 @@ source to a `content_type: "knowledge_set"` input or a `knowledge:`-prefixed val
 
 ## Scrape + Extract
 
-Scrape webpage and extract structured data.
+Scrape webpage and extract structured data. This is the per-item extraction exception: keep the extract step when the page is too long for the agent to read or the tool runs on every row of a table, and return fields, not the answer.
 
 ```typescript
 {
@@ -168,7 +138,7 @@ Return JSON with: title, main_points, contact_info`
 
 ## Multi-Query Loop
 
-Generate multiple queries and search each. This pattern shows where to place markdown notes for documentation — see [documentation.md](documentation.md) for the full rubric.
+Search several phrasings in parallel and return one de-duplicated list. The calling agent writes the phrasings and reads the results. This pattern shows where to place markdown notes for documentation — see [documentation.md](documentation.md) for the full rubric.
 
 ```typescript
 {
@@ -177,9 +147,14 @@ Generate multiple queries and search each. This pattern shows where to place mar
   params_schema: {
     type: "object",
     properties: {
-      topic: { type: "string", title: "Topic" }
+      queries: {
+        type: "array",
+        title: "Search Queries",
+        description: "3-5 phrasings of what to search for; the calling agent writes these",
+        items: { type: "string" }
+      }
     },
-    required: ["topic"]
+    required: ["queries"]
   },
   transformations: {
     steps: [
@@ -188,45 +163,7 @@ Generate multiple queries and search each. This pattern shows where to place mar
         name: "overview",
         transformation: "markdown",
         params: {
-          markdown: "### Multi-query web search and synthesis\n\nTakes a **{{params.topic}}** and produces a synthesised summary. The chain fans out (LLM generates queries → parallel search → synthesise) so the final summary is grounded in a wider slice of the web than a single query would return."
-        },
-        output: {}
-      },
-      // Generate queries as JSON
-      {
-        name: "generate_queries",
-        transformation: "prompt_completion",
-        params: {
-          prompt: `Generate 5 search queries for: {{params.topic}}
-Output ONLY a JSON array of strings:
-["query 1", "query 2", ...]`
-        },
-        output: { queries_json: "{{answer}}" }
-      },
-      // Inline note — explains why the parse step exists (non-obvious data reshape)
-      {
-        name: "why_parse",
-        transformation: "markdown",
-        params: {
-          markdown: "The LLM returns a JSON string in **{{steps.generate_queries.output.queries_json}}**, but `loop` requires an actual array — not a string. This step parses it and strips any markdown code-fence the LLM might wrap around the JSON."
-        },
-        output: {}
-      },
-      // Parse JSON to array
-      {
-        name: "parse_queries",
-        transformation: "python_code_transformation",
-        params: {
-          code: `
-import json
-json_str = """{{steps.generate_queries.output.queries_json}}"""
-json_str = json_str.strip()
-if json_str.startswith("\`\`\`"):
-    json_str = json_str.split("\\n", 1)[1]
-if json_str.endswith("\`\`\`"):
-    json_str = json_str[:-3]
-return {"queries": json.loads(json_str.strip())}
-`
+          markdown: "### Multi-query web search\n\nTakes a list of **queries** and returns one de-duplicated list of results, with how many it read. The calling agent writes the phrasings and reads the results; this tool only fans the search out so the agent sees a wider slice of the web than one query returns."
         }
       },
       // Loop through queries
@@ -234,7 +171,7 @@ return {"queries": json.loads(json_str.strip())}
         name: "search_loop",
         transformation: "loop",
         params: {
-          items: "{{steps.parse_queries.output.transformed.queries}}",
+          items: "{{params.queries}}",
           execution_mode: "parallel",
           steps: [
             {
@@ -250,27 +187,45 @@ return {"queries": json.loads(json_str.strip())}
         },
         output: { all_results: "{{results}}" }
       },
-      // Synthesize all results
+      // Inline note — explains a non-obvious data reshape
       {
-        name: "synthesize",
-        transformation: "prompt_completion",
+        name: "why_dedupe",
+        transformation: "markdown",
         params: {
-          prompt: `Synthesize findings about {{params.topic}} from these search results:
-
-{{steps.search_loop.output.all_results}}
-
-Provide a comprehensive summary.`
-        },
-        output: { summary: "{{answer}}" }
+          markdown: "The loop returns one **results** list per query in **{{steps.search_loop.output.all_results}}**, and different phrasings often find the same page. This step flattens them into one list and keeps the first result for each link."
+        }
+      },
+      // Flatten and drop repeated links
+      {
+        name: "dedupe",
+        transformation: "js_code_transformation",
+        params: {
+          code: `
+const all = (steps.search_loop.output.all_results || []).flatMap((r) => r.results || []);
+const seen = new Set();
+const results = [];
+for (const r of all) {
+  if (seen.has(r.link)) continue;
+  seen.add(r.link);
+  results.push({ title: r.title, link: r.link, snippet: r.snippet });
+}
+return { results, scanned: all.length, kept: results.length };
+`
+        }
       }
-    ]
+    ],
+    output: {
+      results: "{{steps.dedupe.output.transformed.results}}",
+      scanned: "{{steps.dedupe.output.transformed.scanned}}",
+      kept: "{{steps.dedupe.output.transformed.kept}}"
+    }
   }
 }
 ```
 
 ## URL List Processing
 
-Process a list of URLs in parallel.
+Process a list of URLs in parallel, inside one tool run. When each URL needs an agent's judgement, give each its own task instead ([Work Over Many Items](../managing-relevance-agents/many-items.md)).
 
 ```typescript
 {
@@ -317,7 +272,7 @@ Process a list of URLs in parallel.
 
 ## Data Enrichment
 
-Enrich data with external lookups.
+Enrich data with external lookups. This is the per-item extraction exception, built to run on every row of a knowledge table as a tool column (Run tool on all rows in the app): the LLM step returns fields, not the answer.
 
 ```typescript
 {
@@ -339,8 +294,7 @@ Enrich data with external lookups.
         transformation: "markdown",
         params: {
           markdown: "### Enrich a company from name (+ optional domain)\n\nTakes **{{params.company_name}}** and an optional **{{params.domain}}**. Always searches the web; additionally scrapes the company's homepage when a domain is supplied. The final LLM step fuses both sources into a structured JSON profile."
-        },
-        output: {}
+        }
       },
       // Search for company info
       {
@@ -437,39 +391,46 @@ Different actions based on input.
         name: "overview",
         transformation: "markdown",
         params: {
-          markdown: "### Route input to a type-specific handler\n\nClassifies **{{params.input}}** as URL, email, or other, then runs only the matching handler via `if:` branches. The classifier output (`{{steps.determine_type.output.type}}`) is the routing key."
-        },
-        output: {}
+          markdown: "### Route input to a type-specific handler\n\nClassifies **{{params.input}}** as URL, email, or other with a pattern match (no model needed for a question with one right answer), then runs only the matching handler via `if:` branches. The classifier output (`{{steps.determine_type.output.transformed.type}}`) is the routing key."
+        }
       },
       {
         name: "determine_type",
-        transformation: "prompt_completion",
+        transformation: "js_code_transformation",
         params: {
-          prompt: "Is '{{params.input}}' a URL, email, or other? Reply with just: url, email, or other",
-          model: "relevance-cost-optimized"
-        },
-        output: { type: "{{answer}}" }
+          code: `
+const input = String(params.input ?? "").trim();
+if (/^https?:[/][/]/i.test(input)) return { type: "url" };
+if (/^[^@ ]+@[^@ ]+[.][^@ ]+$/.test(input)) return { type: "email" };
+return { type: "other" };
+`
+        }
       },
       {
         name: "process_url",
         transformation: "browserless_scrape",
-        if: "{{steps.determine_type.output.type == 'url'}}",
+        if: "{{steps.determine_type.output.transformed.type == 'url'}}",
         params: {
           website_url: "{{params.input}}"
         }
       },
       {
         name: "process_email",
-        transformation: "prompt_completion",
-        if: "{{steps.determine_type.output.type == 'email'}}",
+        transformation: "js_code_transformation",
+        if: "{{steps.determine_type.output.transformed.type == 'email'}}",
         params: {
-          prompt: "Extract info from email: {{params.input}}"
+          code: `
+const [local, domain] = String(params.input ?? "").trim().split("@");
+return { local, domain };
+`
         }
       }
     ]
   }
 }
 ```
+
+> A JS code step reads tool inputs as `params.<name>`, the way it reads `steps.<name>.output`. Don't paste `{{params.<name>}}` into the code: it is substituted as raw text before the code runs, so an input containing a backtick or `${` breaks out of the string and runs as code.
 
 ## Pagination Pattern
 

@@ -5,9 +5,9 @@ description: Attach tool nodes (workforce-level tool steps), condition nodes (ro
 
 # Workforce Tool / Condition / Note Nodes
 
-A workforce graph is a DAG of five node kinds: `trigger`, `agent`, `tool`, `condition`, `note`. The `agents` + `triggers` inputs on `relevance_create_workforce` cover the first two — this doc covers the remaining three. Pass them via `tools`, `conditions`, and (for notes — read-only on create, writable on update) the `workforce_graph.nodes` array on `relevance_update_workforce`.
+A workforce graph is a DAG of five node kinds: `trigger`, `agent`, `tool`, `condition`, `note`. The `agents` + `triggers` inputs on `relevance_create_workforce` cover the first two — this doc covers the remaining three. Pass them via `tools` and `conditions` on either tool (on `relevance_update_workforce` they add nodes to an existing workforce, wired with `edges` whose ends are `{ kind, index }` or `{ node_id }`), and notes via the `workforce_graph.nodes` array on `relevance_update_workforce`.
 
-> **Edge addressing.** Every edge identifies its endpoints as `{ source: { kind, index }, target: { kind, index } }` where `kind` is `trigger | agent | tool | condition` (source) or `agent | tool | condition` (target). `index` is a zero-based index into the matching node array you passed at create time. See [`SKILL.md`](SKILL.md) for the full edge reference.
+> **Edge addressing.** Each edge end is either `{ kind, index }` or `{ node_id }`. `kind` is `trigger | agent | tool | condition` (source) or `agent | tool | condition` (target), and `index` is a zero-based index into the matching node array passed in the same call. `{ node_id }` names a node already in the workforce (update only). See [`SKILL.md`](SKILL.md) for the full edge reference.
 
 ## Tool Nodes
 
@@ -126,7 +126,42 @@ relevance_create_workforce({
 
 The order outgoing edges are evaluated in is determined by the order you list them in the `edges` array — `condition_node.config.edge_order` is backfilled from the insertion order. Put the most specific branch first; put a catch-all (empty `filters: []` or a permissive prompt) last.
 
-When **updating** an existing workforce via `relevance_update_workforce`, each condition node's `edge_order` is rebuilt from current outgoing edges: existing entries keep their relative position; newly-added edges get appended at the end. If you need a new edge to evaluate _before_ an existing one, pass an explicit condition node patch with the desired `edge_order` array in `workforce_graph.nodes`.
+When **updating** with `edges`, extending a saved condition with other surviving routes requires a complete order in the same call. Give each new edge an `edge_id` and patch the condition's `config.edge_order` with every final outgoing edge ID exactly once, in priority order. Preserve its other config and metadata. Put specific branches before a catch-all; listing them after one deliberately leaves the catch-all with priority.
+
+For a saved condition whose only route is `catchall`, use the freshly read condition node as `savedCondition`:
+
+```typescript
+relevance_update_workforce({
+  workforce_id: 'workforce-id',
+  agents: [{ agentId: 'agent_urgent' }],
+  edges: [
+    {
+      edge_id: 'urgent-route',
+      source: { node_id: savedCondition.node_id },
+      target: { kind: 'agent', index: 0 },
+      condition: {
+        type: 'prompt-based',
+        config: { prompt: 'Is this urgent?' },
+      },
+    },
+  ],
+  workforce_graph: {
+    nodes: [
+      {
+        ...savedCondition,
+        config: {
+          ...savedCondition.config,
+          edge_order: ['urgent-route', 'catchall'],
+        },
+      },
+    ],
+  },
+});
+```
+
+`edge_id` is optional on create and update; omitted IDs are generated. The `edges` input only adds edges: IDs must be unique within the request and must not collide with saved edges or raw `workforce_graph.edges` patches, even if those IDs are being removed. To edit an existing edge, use `workforce_graph.edges`. If an addition is retried after saving, inspect the graph before making another change.
+
+Missing, malformed, duplicate or incomplete orders are rejected before saving. An order must match the outgoing edges after edits and removals, so removed edges and edges from other conditions do not belong in it. Refetch if the graph changed. New conditions, and saved conditions whose other routes are all removed, use input order when no explicit order is supplied. Any explicit order submitted alongside additions must be complete. Raw-only graph updates keep the existing merge behavior, preserving listed positions and appending unlisted edges.
 
 ### Condition payload — prompt-based vs rule-based
 
@@ -138,6 +173,15 @@ Each outgoing edge from a condition node MUST carry a `condition` payload:
 | `rule-based`   | The decision is a structural filter over input fields — value equality, comparisons, AND/OR combinations | `{ type: "rule-based", config: { filters: [<FilterItem>] } }` |
 
 Prompt-based conditions optionally use `llm_condition_model` on the node (e.g. `llm_condition_model: 'relevance-cost-optimized'`) to override the default model — never hardcode a versioned model id, call `relevance_list_llm_models` if you need a specific one. Rule-based filters use the same shape as `FilterItem` filters elsewhere in the platform — refer to the relevant tool docs when constructing them.
+
+#### Judging prompt-based conditions with a decision model
+
+Instead of an LLM, a condition node can judge its prompt-based edges with a **decision model**: set `decision_condition_model` on the condition when creating the workforce. A decision model reads the previous node's output and picks the most likely edge, or none of them, in well under a second, with a probability for each; it does not explain its choice. Rule-based edges and the routing order work exactly as with an LLM.
+
+- Take the id from `relevance_list_decision_models` — never write one from memory. It lists only the models this project may use, and each entry's `has_user_key` says whether the project already holds the provider key the model needs (`project_key_name`). If the list is empty, decision models are not available here: judge the condition with an LLM instead.
+- `decision_condition_model` and `llm_condition_model` are mutually exclusive on a node.
+- The node stores it as `config.decision_condition_model`. A node patch passed to `relevance_update_workforce` replaces the whole node, so keep `decision_condition_model` in the config you send, or the node falls back to an LLM.
+- If the key is missing, the run fails at the condition with an "add your API key" error rather than falling back to an LLM.
 
 ### Valid edges to/from condition nodes
 

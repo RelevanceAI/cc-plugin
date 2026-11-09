@@ -77,6 +77,8 @@ Response shape (trimmed):
 - `platform_key_available` (API keys only) — Relevance has a shared key fallback; the tool will work, user can optionally add their own.
 - `missing` — user action required. Send them the entry's `setup_url`.
 
+Only `missing` is a user action. `platform_key_available` means Relevance supplies the key — don't send a setup link and don't design around it. See [api-keys.md](api-keys.md#whose-credential-is-it).
+
 ## Directing the user
 
 Always prefer the per-entry `setup_url` over the top-level one — it opens the provider's drawer directly. For API keys, show the `provider_label` (e.g. "Firecrawl API Key"), never the raw `provider` identifier.
@@ -85,18 +87,18 @@ Surface `setup_url` as a **clickable link** the user can click straight through 
 
 > Your tool _"Search HubSpot Contacts"_ needs a HubSpot OAuth connection. Please connect here: {setup_url}
 
-After the user reports they've added it, re-run `relevance_check_tool_integration_requirements` (or `relevance_check_api_key_availability` for keys only) to verify.
+After the user reports they've added it, re-run `relevance_check_tool_integration_requirements` to verify. `relevance_check_api_key_availability` lists only keys already saved, so it can confirm an addition — never that a key is missing.
 
 ## What next
 
 - **API-key specifics** — multi-key providers (Twilio, AWS Bedrock, Azure OpenAI, GCP Vertex, Marketo, ZoomInfo), LLM platform-key semantics, common error strings, and `provider_label` guidance → see [api-keys.md](api-keys.md).
-- **OAuth param authoring** — how to declare `content_type: "oauth_account"`, and the `is_fixed_param` + `default` pattern for agent-called tools → see [oauth.md](oauth.md).
+- **OAuth param authoring** — how to declare `content_type: "oauth_account"`, choose which account to use, and set it on an agent's tool → see [oauth.md](oauth.md).
 
 ## Quick Reference
 
-| Tool                                            | Purpose                                                                      |
-| ----------------------------------------------- | ---------------------------------------------------------------------------- |
-| `relevance_check_tool_integration_requirements` | Check what integrations tools need, cross-referenced against configured ones |
-| `relevance_check_api_key_availability`          | Check which API keys are configured at project/org level                     |
-| `relevance_list_oauth_accounts`                 | List connected OAuth accounts                                                |
-| `relevance_list_integration_providers`          | List available integration providers                                         |
+| Tool                                            | Purpose                                                                                                                |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `relevance_check_tool_integration_requirements` | Check what integrations tools need, cross-referenced against configured ones                                           |
+| `relevance_check_api_key_availability`          | List the keys already saved at project/org level — an inventory, not a requirements check; it cannot see platform keys |
+| `relevance_list_oauth_accounts`                 | List connected OAuth accounts                                                                                          |
+| `relevance_list_integration_providers`          | List available integration providers                                                                                   |

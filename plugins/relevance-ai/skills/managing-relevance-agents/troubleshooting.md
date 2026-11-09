@@ -24,7 +24,7 @@ Step N: API call        Step 0: Agent/Trigger
 | API parameter missing     | Agent didn't pass it in tool call                                                   |
 | `KeyError: 'transformed'` | Previous Python step errored or returned wrong type                                 |
 | Empty string in API call  | Upstream step received empty input                                                  |
-| `required property` error | params_schema mismatch in workforce edge                                            |
+| `required property` error | params_schema mismatch in workforce edge (see workforce concepts: Action Config)    |
 | Tool returns empty `{}`   | Stored output map is an explicit `{}` (see creating.md "Fixing Empty Tool Outputs") |
 
 ## Critical Issues
@@ -83,6 +83,20 @@ Step N: API call        Step 0: Agent/Trigger
 
 **Fix:** Use backend-generated IDs, not your custom IDs. Call `relevance_get_agent_tools` and read the `actionIdMap` values into your system prompt.
 
+### `undefined` in the Prompt, a Message or a Tool Input
+
+**Symptom:** The agent's replies, its tool calls or its task title contain the literal text `undefined`, or it acts as if an instruction is missing.
+
+**Cause:** A `{{name}}` reference to an agent variable with no value on that run. The run replaces it with `undefined` and reports nothing. Typical sources: a variable that was renamed or removed while the prompt or a tool input still references it, or a value that only an API caller passes.
+
+**Fix:** Check `variables_without_value` in `relevance_get_agent`, then save a value or remove the reference. See [variables.md](variables.md).
+
+### "Agent params validation error" (422)
+
+**Cause:** A required agent variable has no value, or a value of the wrong type, on that run.
+
+**Fix:** Save a value for it on the agent, or mark it not required. See [variables.md](variables.md).
+
 ### Agent Cloning Fails with "additional properties" Error
 
 **Symptom:** Error like `must NOT have additional properties {"additionalProperty":"studio_id"}` when cloning or running in a workforce.
@@ -126,6 +140,30 @@ Step N: API call        Step 0: Agent/Trigger
 
 When the root cause is a missing or wrong OAuth account (or a missing API key), don't just tell the user to "reconnect the account" in prose — give them the **clickable connect link** if your harness provides one. Call `relevance_check_tool_integration_requirements({ tool_ids: [...], agent_id })` and surface the per-provider `setup_url` it returns. Load the `managing-relevance-tools/integration-setup` skill for the full flow.
 
+### One Task Handles a Whole List
+
+**Symptom:** one run works through every lead, ticket or row. One bad record stops the rest, or records are handled again on the next run.
+
+**Cause:** the agent runs a tool that fetches the list itself, because its system prompt or a recurring trigger's message tells it to, so every record lands in one task.
+
+**Fix:** make that tool a tool trigger, which starts one task per record. A tool trigger runs the published agent and can start as soon as it's saved, so fix the agent first: pause the recurring trigger, rewrite the system prompt for one record, detach the tool (`relevance_detach_tools_from_agent`) and publish once the user agrees. Then create the tool trigger and delete the recurring one. Steps: [triggers.md](triggers.md#tool-trigger).
+
+**The same fault in other shapes:**
+
+- **A workforce orchestrator calls a subagent once per item.** The whole list sits in one conversation that grows with every item, nothing tracks which items are done, and one failure stops or derails the rest. Rebuild the workforce for one item and start one workforce run per item.
+- **A run per item is started from a chat** for more than five items, one `relevance_trigger_agent` call each. The chat ends before the list does and nothing tracks which items are done. Start a bulk run over the list instead, with the bulk-run tool or Run in bulk in the app ([many-items.md](many-items.md#run-in-bulk-a-list-you-already-have)).
+- **The agent takes "up to N" records per run and logs the ones it handled.** Items past N wait or are dropped. A tool trigger with a generous window and `dedupe_field` replaces both the cap and the log.
+
+Converting each: [many-items.md](many-items.md#converting-an-agent-that-already-works-through-a-list).
+
+### Someone the Prompt Names Isn't Getting the Output
+
+**Symptom:** the prompt names a recipient, but scheduled runs don't send to it.
+
+**Cause:** a trigger's message names its own recipients, which override the prompt.
+
+**Fix:** take the recipients out of the trigger messages (`relevance_list_agent_triggers`).
+
 ### LinkedIn Trigger Not Responding
 
 **Checklist:**
@@ -147,12 +185,13 @@ When the root cause is a missing or wrong OAuth account (or a missing API key), 
 
 ### Agent Gives Wrong/Generic Response
 
-| Cause               | Fix                             |
-| ------------------- | ------------------------------- |
-| Vague system prompt | Add specific instructions       |
-| Too many tools      | Remove unused tools             |
-| Wrong model         | Try higher-capability model     |
-| Missing context     | Include relevant info in prompt |
+| Cause                     | Fix                                                                                                                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Vague system prompt       | Add specific instructions                                                                                                    |
+| Too many tools            | Remove unused tools                                                                                                          |
+| Wrong model               | Try higher-capability model                                                                                                  |
+| Missing context           | Include relevant info in prompt                                                                                              |
+| A variable says otherwise | Read the variables the prompt uses ([variables.md](variables.md)): the rule it broke may live in one, or be missing from one |
 
 ### Agent Stuck on Pending Approval
 
@@ -162,7 +201,7 @@ When the root cause is a missing or wrong OAuth account (or a missing API key), 
 
 **Fix:**
 
-1. Go to the conversation URL returned in the response to approve/reject the pending tool call
+1. Give the user the conversation URL returned in the response to approve or reject the pending tool call. If they ask you to decide, see [Deciding on a waiting task](running.md#deciding-on-a-waiting-task)
 2. For automated use, call `relevance_update_agent` to change the tool's `action_behaviour` to `"never-ask"`
 
 ### Duplicate Tasks Created
@@ -213,6 +252,7 @@ Inspect the full agent config returned by `relevance_get_agent({ agent_id: "..."
 Verify:
 
 - `system_prompt` is set
+- every variable in `used_in` has the value you expect, and none is listed in `variables_without_value` ([variables.md](variables.md) covers a read that lists neither)
 - `actions` array has tools
 - Each action has `project` and `region`
 
@@ -258,6 +298,18 @@ Verify:
 
 ### "must NOT have additional properties"
 
+Look at the rejected key in `additionalProperty`: it tells you which cause below applies.
+
+#### `__conversation_id`, `__mas_id` or `__mas_store_id`
+
+**Symptom:** Every agent call to a tool fails before it runs with `Studio Params Validation Error: must NOT have additional properties {"additionalProperty":"__conversation_id"}`, then `Too many errors for action`.
+
+**Cause:** The tool's `params_schema` sets `"additionalProperties": false` at the top level. An agent run adds `__conversation_id` to every tool's inputs (and `__mas_id`, `__mas_store_id` inside a workforce), and the tool's own schema rejects them.
+
+**Fix:** With `relevance_update_tool`, re-send the complete `params_schema` without the top-level `"additionalProperties"`, or with it set to `true`. Nested objects can keep `"additionalProperties": false`.
+
+#### Any other key
+
 **Symptom:** Error like `Studio transformation python_code_transformation input validation error: must NOT have additional properties {"additionalProperty":"variables"}`
 
 **Cause:** Using a parameter that doesn't exist in the transformation schema.
@@ -279,9 +331,9 @@ const transform = await relevance_get_transformation({
 
 ### Tool Syntax Errors with Template Substitution
 
-**Symptom:** Python code fails with syntax errors when processing data from previous steps.
+**Symptom:** Python code fails with syntax errors when processing data from a previous step.
 
-**Cause:** Template substitution (`{{steps.x.output}}`) inserts raw text that may contain characters breaking the code.
+**Cause:** `{{steps.x.output}}` inserts that step's output as raw text, which may contain characters that break the code.
 
 **Options:**
 
@@ -289,15 +341,23 @@ const transform = await relevance_get_transformation({
 2. For simple values in Python, use string quotes: `value = "{{steps.x.output.field}}"`
 3. Check for special characters in the data being substituted
 
+### Code Step Fails to Parse a `{{params.*}}` Value
+
+**Symptom:** A code step throws a JSON parse error (Python `JSONDecodeError`, JS `SyntaxError`) on a value that came from `{{params.<name>}}`.
+
+**Cause:** Suspect the argument before the substitution. `{{steps.x.output}}` carries data produced inside the tool, but `{{params.x}}` carries text the **calling model** generated, and a param typed `string` that holds JSON makes the model escape a whole document by hand — one brace out of place parses as valid arguments and fails in the code step.
+
+**Fix:** Read what the tool actually received with `relevance_list_tool_runs({ tool_id })` and compare the failing run's params to the last successful run's. If the value is malformed there, the model wrote it: the durable fix is to declare the param as a typed `array`/`object` rather than a JSON string (see the tools skill), not to make the code tolerate junk.
+
 ## Getting Help
 
 1. Use `relevance_get_agent` to dump full config
 2. Check conversation with `relevance_get_agent_task_summary`
-3. Test tools independently with `relevance_trigger_tool` (then `relevance_poll_tool_result`)
+3. Test tools that only read independently with `relevance_trigger_tool` (then `relevance_poll_tool_result`); never run one that writes just to try it
 4. Review OAuth with `relevance_list_oauth_accounts`
 5. Check transformation schemas with `relevance_get_transformation`
 6. When the failure is a missing/wrong account or key, call `relevance_check_tool_integration_requirements` and give the user the returned `setup_url` as a clickable link — never paraphrase the Integrations navigation in prose
 
 ## Reporting Issues
 
-If troubleshooting reveals a platform bug, missing capability, or recurring friction point, **call `relevance_submit_feedback` immediately** — do not ask the user for permission. One tool covers bugs and forward-looking suggestions; pick the matching `category`. Include the error symptoms and IDs so the team can reproduce. See [report-bugs.md](report-bugs.md) for the call shape.
+When a failure is the platform's (not the input, not your own config), a capability is missing, or a friction point keeps recurring, **call `relevance_submit_feedback` without asking the user for permission**. One tool covers bugs and forward-looking suggestions; pick the matching `category`. Include the error symptoms and IDs so the team can reproduce. See [report-bugs.md](report-bugs.md) for the call shape.

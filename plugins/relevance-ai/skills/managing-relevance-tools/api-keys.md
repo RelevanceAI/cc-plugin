@@ -13,7 +13,7 @@ Deep reference for API-key integrations. For the detection → setup → verify 
 - **On "API key missing" errors** — runtime errors like `"You need to add your chains_xxx_api_key"` or `"Missing API key for provider: <name>"` mean the backend tried to read an unconfigured key.
 - **Before triggering an agent** — verify keys are in place so the run doesn't fail mid-conversation.
 
-Because the requirement lives on the underlying transformation, you cannot see it from the tool's `params_schema` alone — always use `relevance_check_tool_integration_requirements` (or `relevance_check_api_key_availability` for a project-wide read).
+Because the requirement lives on the underlying transformation, you cannot see it from the tool's `params_schema` alone — always use `relevance_check_tool_integration_requirements`.
 
 > **Always show `provider_label` to the user, not `provider`.** The `provider` field is the internal identifier (e.g., `twilio_account_sid`, `aws-bedrock-iam-key-id`) — pass it through to other tool calls and deep-link URLs, but never paste it into a user-facing message. Use `provider_label` (e.g., "Twilio Account SID") for anything the user will read. The label falls back to the raw identifier only when the provider is not in the catalog.
 
@@ -29,6 +29,8 @@ relevance_check_api_key_availability({
 
 Each entry in `api_keys[]` carries `key` (the internal identifier), `label` (the friendly display name — use this when talking to the user), `project_context.api_key_provided`, `organization_context.api_key_provided`, and a per-provider `setup_url`.
 
+> **This is an inventory of saved keys, not a requirements check.** A provider with no saved key is **absent from `api_keys[]`** — not present with `false` — and nothing here knows about platform keys. An empty result therefore confirms only that the user has not added a key; it can never tell you a tool needs one. Use it to confirm a key the user just added, or to answer "what have I got?". `relevance_check_tool_integration_requirements` is the only read that resolves the three-way status below.
+
 ## Interpreting `status`
 
 | Status                   | Meaning                                                               | What to tell the user                                                                                                  |
@@ -36,6 +38,12 @@ Each entry in `api_keys[]` carries `key` (the internal identifier), `label` (the
 | `configured`             | User (or their org) has saved a key for this provider.                | Nothing — the tool will work.                                                                                          |
 | `platform_key_available` | User has no key, but Relevance has a shared platform key as fallback. | Optional: "You can add your own key for higher rate limits and separate billing, but this tool will work without one." |
 | `missing`                | No user key **and** no platform fallback.                             | Required: direct the user to the `setup_url` for that provider.                                                        |
+
+### Whose credential is it?
+
+`platform_key_available` is Relevance's key doing its job, not a degraded `configured`. So is anything the platform delivers end to end: a trigger type Relevance ships (e.g. `relevance_meeting_bot`) runs on a Relevance-held key, so its absence from the project's key list is expected. Don't send a setup link, propose a workaround, or edit the agent around it — if it fails, report it as a platform issue.
+
+Only `missing` is a user action.
 
 ## Messaging examples
 
@@ -99,9 +107,9 @@ Keys for LLM vendors (`openai`, `anthropic`, `google`, `cohere`, `groq`, `xai`, 
 
 ## Quick Reference
 
-| Tool                                            | Purpose                                                                                                     |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `relevance_check_tool_integration_requirements` | Check a set of tools for missing OAuth accounts **and** API keys, with per-provider `setup_url` deep links. |
-| `relevance_check_api_key_availability`          | List API keys across the project/org, optionally filtered, each with a deep-link `setup_url`.               |
+| Tool                                            | Purpose                                                                                                                                                                                                      |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `relevance_check_tool_integration_requirements` | Check a set of tools for missing OAuth accounts **and** API keys, with per-provider `setup_url` deep links.                                                                                                  |
+| `relevance_check_api_key_availability`          | List the keys the project/org has **already saved**, each with a deep-link `setup_url`. Providers with no saved key are absent and platform keys are invisible here, so it cannot tell you a key is missing. |
 
 See also [integration-setup.md](integration-setup.md) for the combined OAuth + API-key overview, and [oauth.md](oauth.md) for the OAuth-side authoring/connection flow.

@@ -1,6 +1,6 @@
 ---
 name: tool-outputs
-description: How to configure what a tool returns at runtime and how it's displayed. Load this skill before the first `set_tool_output` call, and whenever editing a tool that drives a workforce `tool_trigger`.
+description: How to configure what a tool returns at runtime and how it's displayed. Load this skill before the first `set_tool_output` call, and whenever editing a tool that drives a `tool_trigger` on an agent or a workforce.
 ---
 
 # Tool Outputs
@@ -49,7 +49,7 @@ relevance_set_tool_output({
 
 ### Partial updates
 
-`output` and `output_schema` are independent. Omit a field to leave it unchanged. Pass `null` to clear it.
+`output` and `output_schema` are independent. Omit a field to leave it unchanged. Pass `null` to clear it. An empty `output: {}` would make the tool return `{}`, so it is ignored with a warning; pass `null` to return the last step's output.
 
 ```typescript
 // Change only the display order, leave the runtime map alone.
@@ -72,11 +72,11 @@ Pass `output: null` to drop the runtime map. The tool will return the last step'
 
 ```typescript
 relevance_set_tool_output({
-  studio_id: 'summarize',
+  studio_id: 'web-search',
   output: null,
   output_schema: {
-    metadata: { field_order: ['summary'] },
-    properties: { summary: { metadata: { render_mode: 'markdown' } } },
+    metadata: { field_order: ['results'] },
+    properties: { results: { metadata: { render_mode: 'table' } } },
   },
 });
 ```
@@ -109,15 +109,15 @@ Skip the runtime map (passthrough) only when the last step already returns exact
 
 ## ⚠️ `tool_trigger` compatibility
 
-A workforce trigger of `type: 'tool_trigger'` references **one of the tool's runtime output keys** by name (`tool_config.output_field`). At trigger time, the sync provider does a literal key lookup against the tool's runtime output payload. If the named field is missing, the trigger fails with `Tool output field not found`, **without surfacing the failure to the user.**
+A trigger of `type: 'tool_trigger'`, on an agent or a workforce, references **one of the tool's runtime output keys** by name (`tool_config.output_field`). At trigger time, the sync provider does a literal key lookup against the tool's runtime output payload. If the named field is missing, the trigger fails with `Tool output field not found` on every run, **which is easy to miss: only the trigger's status and trigger alarms can show it, and only where trigger run recording is on.**
 
 Before changing a tool's outputs when it is the source of an existing `tool_trigger`:
 
 1. Read the current tool with `relevance_get_tool` and note which keys downstream consumers depend on.
-2. Ask the user whether any workforce triggers reference this tool — and if so, which `output_field` they read.
+2. Ask the user whether any agent or workforce triggers reference this tool — and if so, which `output_field` they read.
 3. If you remove or rename a key the trigger depends on, **say so explicitly** in chat: name the trigger, name the field, and confirm before saving.
 
-The same constraint is documented from the workforce side at [`managing-relevance-workforces/workforce-triggers.md`](../managing-relevance-workforces/workforce-triggers.md).
+The same constraint is documented from the trigger side at [`managing-relevance-agents/triggers.md`](../managing-relevance-agents/triggers.md#tool-trigger) and [`managing-relevance-workforces/workforce-triggers.md`](../managing-relevance-workforces/workforce-triggers.md).
 
 ## Verifying after a change
 
@@ -139,7 +139,7 @@ relevance_poll_tool_result({
 
 If the tool returns `{}` or unexpected keys, the typical fixes are:
 
-- A step's `output:` mapping is empty → patch the step via `relevance_update_tool_step` to alias the transformation's response.
+- A step's `output:` mapping is empty → patch the step via `relevance_update_tool_step` to alias the transformation's response, or pass `output: null` to remove the empty map. For several steps, put one `update` op per step in a single `relevance_update_tool_steps` call.
 - An `output` template references a key that doesn't exist on the named step → use `relevance_run_transformation` to inspect that step's raw response shape.
 - The runtime keys don't match the schema keys → call `set_tool_output` again with matching `output` and `output_schema`.
 

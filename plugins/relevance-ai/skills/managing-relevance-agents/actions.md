@@ -18,6 +18,8 @@ How to attach and configure tools for agents.
 > Tools like `thinking_tool`, `add_agent_memory`, `tag_agent_conversation`, etc. are **phantom tools** — system-injected at runtime from agent settings. Never add them to `actions` manually.
 > Enable them via settings instead (e.g., `thinking_tool: { enabled: true }`).
 > See [phantom-tools.md](phantom-tools.md) for the full list and how to enable each one.
+>
+> An MCP server's tools (`kind: "mcp_tool"` in `relevance_get_agent_tools`) are not actions either: add, remove and approve them as in [mcp-servers.md](mcp-servers.md).
 
 ## Action Structure
 
@@ -48,7 +50,7 @@ Your project's API region may differ from where tools are stored.
 
 ### How to Find Tool Region (Recommended Pattern)
 
-Run `relevance_list_agents` and look at the `region` field on any agent that already has the tool attached — that's the verified region. Pass that region into `relevance_attach_tools_to_agent` (or, for a single existing action, into `relevance_update_agent_action` with `patch: { region }`). As a fallback, `relevance_get_tool` returns the source region under `studio.metadata.source_marketplace_listing.entity_region`. Don't assume your project's API region is the same as the tool's region — they're commonly different.
+Run `relevance_list_agents` and look at the `region` field on any agent that already has the tool attached — that's the verified region. `relevance_attach_tools_to_agent` takes no region and sets it for you; to correct an action that is already attached with the wrong one, use `relevance_update_agent_action` with `patch: { region }`. As a fallback, `relevance_get_tool` returns the source region under `studio.metadata.source_marketplace_listing.entity_region`. Don't assume your project's API region is the same as the tool's region — they're commonly different.
 
 ### Symptoms of Wrong Region
 
@@ -99,6 +101,8 @@ const action = {
 | `never-ask`  | Tool executes automatically          | Default, most tools  |
 | `ask-first`  | Agent asks user before first use     | Sensitive operations |
 | `always-ask` | Requires explicit approval each time | Destructive actions  |
+
+A call that asks waits in the task until someone approves it in the app. Who hears about it depends on the agent's notification rules and older Slack notification, and on where the task started: see [notification-rules.md](notification-rules.md), which also says when to add a rule for whoever approves.
 
 ## Adding and Configuring Actions
 
@@ -164,7 +168,7 @@ Use these IDs in system prompts: `{{_actions.3261d8205a334a99}}`
 
 After attaching tools with `relevance_attach_tools_to_agent`, check the response for:
 
-- **`oauth_auto_config`** — OAuth params are automatically set to "Set manually" mode. If exactly one matching OAuth account is connected, it's pre-filled as the default. Each entry includes a `config_url` linking directly to the tool's config page on the agent. If an account was NOT auto-filled (`account_set: false`), direct the user to the `config_url` to select their account.
+- **`oauth_auto_config`** — OAuth params are automatically set to "Set manually" mode. The account passed in `oauth_account_ids` is pre-filled, or the provider's only usable account when there's just one; if this user didn't connect that one, `message` says so, and you ask before keeping it. Each entry includes a `config_url` linking directly to the tool's config page on the agent. If an account was NOT auto-filled (`account_set: false`), direct the user to the `config_url` to select their account. If the provider has no connected account, leave the input unset until they connect one: omit it from `default_values` (`null` removes one already there), never an empty string. If accounts exist, choose one as in [Choosing the account](../managing-relevance-tools/oauth.md#choosing-the-account). Never write a placeholder or made-up account id, which fails every real run even after one is connected.
 - **`integration_warnings`** — If tools need OAuth accounts or API keys that aren't configured, this field lists missing providers with a `setup_url` for the integrations page and per-tool `config_url` links. Use `relevance_check_tool_integration_requirements` for a detailed per-tool breakdown (pass `agent_id` to get config URLs), or follow the `setup-integrations` prompt for the full workflow.
 
 ## OAuth-Enabled Tools
@@ -185,23 +189,16 @@ The user selects their OAuth account when using the tool.
 
 For the full list of OAuth providers and permission types, see [OAuth Guide](../managing-relevance-tools/oauth.md).
 
-## Three-Layer Default Values (OAuth Credentials)
+## Setting the OAuth Account on an Agent's Tool
 
-When passing agent variables to tools (especially OAuth credentials), configure defaults in THREE places for reliable operation:
+The account an agent's tool uses lives in that attached tool's `default_values`, with the input fixed so the agent can't change it. Choose the account first (see [Choosing the account](../managing-relevance-tools/oauth.md#choosing-the-account)), then:
 
-```
-LAYER 1: Agent params_schema → Sets the agent-level variable default
-LAYER 2: Agent actions[].default_values → Maps agent variable to tool input at call time
-LAYER 3: Tool params_schema → Fallback if agent doesn't pass value
-```
+- **Attaching:** pass it in `oauth_account_ids` on `relevance_attach_tools_to_agent`, one per provider.
+- **Already attached:** call `relevance_update_agent_action` with `patch: { default_values: { <oauth_param>: "<account_id>" } }`. `default_values` merges by key, so its other keys stay.
 
-**All three layers are needed.** Apply each one with the right tool:
+A key in `default_values` is used on every call and overrides what the agent passes for that input, whatever its instructions or `prompt_description` say. Each key's value is replaced whole, `_subagent_params` included. When the instructions have the agent choose a value, such as a channel per kind of message, do both: send that key as `null`, and set the input's `overrides.params_schema.properties.<param>.metadata.is_fixed_param` to `false`. `overrides` is replaced whole, so send its existing entries with that one change, the account input's included.
 
-1. Find the OAuth account id with `relevance_list_oauth_accounts`.
-2. **Layer 3 (tool fallback):** call `relevance_get_tool` first, then `relevance_update_tool` with the tool's `studio_id` and the **complete** `params_schema` (every existing property) with `default: "<oauth_account_id>"` set on the OAuth param — `update_tool` replaces `params_schema` wholesale, so sending only the OAuth param would drop the rest.
-3. **Layer 1 (agent-level variable):** call `relevance_update_agent` with `patch: { params_schema: { type: "object", properties: { <oauth_param>: { type: "string", default: "<oauth_account_id>" } } } }`.
-4. **Layer 2 (per-action mapping):** for each affected attached tool, call `relevance_update_agent_action` with the tool's `chain_id` and `patch: { default_values: { <oauth_param>: "{{<oauth_param>}}" } }`. Do this once per attached tool.
-5. After the user confirms, call `relevance_publish_agent`.
+Don't put the account in the tool's own `params_schema` `default` or in the agent's `params_schema`. Those are shared, so a private account there acts as its owner for everyone.
 
 ## Listing Available OAuth Accounts
 

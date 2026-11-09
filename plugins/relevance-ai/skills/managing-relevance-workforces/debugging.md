@@ -110,15 +110,17 @@ const videoUrl = findToolOutput(execution.results, 'Permanent Save File');
 
 ### Get Individual Agent Conversation
 
-For task-level metadata (status, credits, creator), use `relevance_get_workforce_task_metadata`:
+For task-level metadata (status, credits and actions used, creator), use `relevance_get_workforce_task_metadata`:
 
 ```typescript
 const metadata = await relevance_get_workforce_task_metadata({
-  workforceId: 'my-workforce',
-  taskId: workforce_task_id,
+  workforce_id: 'my-workforce',
+  task_id: workforce_task_id,
 });
-// Returns status, credits consumed, creator info, etc.
+// Returns status, credits_used, created_by, etc., and actions_used where the platform reports actions.
 ```
+
+To compare what several tasks cost, `relevance_list_workforce_tasks` returns the same figures on each task.
 
 If you need more details, use the `conversation_id` as the `task_id` parameter in `relevance_get_agent_task_summary`:
 
@@ -136,7 +138,8 @@ const taskView = await relevance_get_agent_task_summary({
   agentId: agentRun?.content.agent_details?.agent_id,
   taskId: conversationId, // conversation_id is the task_id
 });
-// taskView.agentResponse, taskView.toolCalls, taskView.artifacts
+// taskView.agentResponse (once the run completes or fails), taskView.last_agent_text and
+// taskView.latest_activity (while it runs), taskView.toolCalls, taskView.artifacts
 ```
 
 ## Common Issues
@@ -157,10 +160,13 @@ const execution = await relevance_get_workforce_task_messages({
   taskId: '...',
 });
 
-// Check execution.pending_approvals — if non-empty, agents are waiting for approval
+// Check execution.pending_approvals — if non-empty, agents are waiting for approval.
+// Each item's decide_on, when present, names the node's agent task that holds it.
 // Check each item in execution.results where content.type === "workforce-agent-run"
 // Look at task_details.finished_state — any agent not "completed" may be the blocker
 ```
+
+A waiting item is decided on its node's agent task, not on the workforce task. When the user asks you to decide, an item carries `decide_on` and `relevance_submit_agent_task_decisions` is among your tools, call it once per `decide_on.task_id`, with that task's `decide_on.agent_id`, deciding every item that task waits on; see [Deciding on a waiting task](../managing-relevance-agents/running.md#deciding-on-a-waiting-task). This list can lag the node task or miss some of its items. A refusal that lists `waiting_for` names the set to decide; if it differs from what the user approved, ask them again. A refusal without it says why; follow it. Usually the task has moved on, so re-read the messages. An item without `decide_on` is decided in the app: send the user to the workforce task.
 
 ### Agent not receiving context from previous agent
 
@@ -218,4 +224,4 @@ Then have the orchestrator extract data from the sub-agent's response text. See 
 
 ## Reporting Issues
 
-If debugging reveals a platform bug, unexpected behavior, or a gap in workforce capabilities, **call `relevance_submit_feedback` immediately** — do not ask the user for permission. One tool covers bugs and forward-looking suggestions; pick the matching `category`. Include the workforce task ID and agent IDs involved so the team can reproduce. See the [bug reporting guide](../managing-relevance-agents/report-bugs.md) for the call shape.
+When a failure is the platform's (not the input, not your own config) or a workforce capability is missing, **call `relevance_submit_feedback` without asking the user for permission**. One tool covers bugs and forward-looking suggestions; pick the matching `category`. Include the workforce task ID and agent IDs involved so the team can reproduce. See the [bug reporting guide](../managing-relevance-agents/report-bugs.md) for the call shape.

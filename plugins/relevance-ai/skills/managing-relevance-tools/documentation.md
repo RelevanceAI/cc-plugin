@@ -17,12 +17,11 @@ Multi-step tools are hard to read. A user opens a tool someone (or something) el
 {
   name: "overview",                 // any unique identifier
   transformation: "markdown",        // discriminator — do not change
-  params: { markdown: "### What this tool does\n..." },
-  output: {}                         // always empty
+  params: { markdown: "### What this tool does\n..." }
 }
 ```
 
-The `params.markdown` value renders as rich text in place in the Relevance app UI. No `output` mapping is needed and no downstream step ever references it.
+The `params.markdown` value renders as rich text in place in the Relevance app UI. A markdown step needs no `output` key — omit it (an empty `output: {}` is dropped with a warning) — and no downstream step ever references it.
 
 ## When to insert a note
 
@@ -71,97 +70,97 @@ A note has a job. Pick one and execute on it.
 
 ## Worked example
 
-**Tool:** `enrich-and-follow-up` — takes a customer email, looks them up in HubSpot, summarizes their recent conversation history, drafts a follow-up email, and saves the draft back to HubSpot as a note.
+**Tool:** `contact-history` — takes a customer email, looks them up in HubSpot, and returns the contact with their last 10 messages, oldest first. It only gathers: the calling agent reads the history and drafts the follow-up from its own system prompt, where the owner can see and edit it.
 
 ### Before (no documentation)
 
 ```typescript
 {
-  studio_id: "enrich-and-follow-up",
-  title: "Enrich and Draft Follow-Up",
-  prompt_description: "Use to draft a follow-up email for a customer",
+  studio_id: "contact-history",
+  title: "Get Contact History",
+  prompt_description: "Use to get a customer's HubSpot contact and their last 10 messages before writing to them",
   transformations: {
     steps: [
-      { name: "find_contact", transformation: "hubspot_native_search_contact", params: { email: "{{params.email}}" }, output: { contact: "{{contact}}" } },
-      { name: "fetch_conversations", transformation: "hubspot_native_list_conversations", params: { contact_id: "{{steps.find_contact.output.contact.id}}" }, output: { conversations: "{{conversations}}" } },
-      { name: "summarize", transformation: "prompt_completion", params: { prompt: "Summarise the last 10 messages...\n\n{{steps.fetch_conversations.output.conversations}}" }, output: { summary: "{{answer}}" } },
-      { name: "draft", transformation: "prompt_completion", params: { prompt: "Write a 3-paragraph follow-up email to {{steps.find_contact.output.contact.first_name}} based on:\n\n{{steps.summarize.output.summary}}" }, output: { email: "{{answer}}" } },
-      { name: "save", transformation: "hubspot_native_create_note", params: { contact_id: "{{steps.find_contact.output.contact.id}}", note: "{{steps.draft.output.email}}" }, output: { note_id: "{{id}}" } }
-    ]
+      { name: "find_contact", transformation: "hubspot_api_call", params: { oauth_account_id: "{{params.hubspot_account}}", method: "POST", path: "/crm/v3/objects/contacts/search", body: { filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: "{{params.email}}" }] }] } }, output: { contact: "{{response_body.results[0]}}" } },
+      { name: "fetch_conversations", transformation: "hubspot_api_call", params: { oauth_account_id: "{{params.hubspot_account}}", method: "POST", path: "/crm/v3/objects/emails/search", body: { filterGroups: [{ filters: [{ propertyName: "associations.contact", operator: "EQ", value: "{{steps.find_contact.output.contact.id}}" }] }], properties: ["hs_email_from_email", "hs_timestamp", "hs_email_text"], limit: 100 } }, output: { conversations: "{{response_body.results}}" } },
+      { name: "last_ten", transformation: "js_code_transformation", params: { code: "const all = steps.fetch_conversations.output.conversations || [];\nconst messages = all.map((m) => m.properties || {}).sort((a, b) => new Date(a.hs_timestamp) - new Date(b.hs_timestamp)).slice(-10).map((p) => ({ from: p.hs_email_from_email, sent_at: p.hs_timestamp, body: (p.hs_email_text || '').slice(0, 1000) }));\nreturn { messages, scanned: all.length, kept: messages.length };" } }
+    ],
+    output: { contact: "{{steps.find_contact.output.contact}}", messages: "{{steps.last_ten.output.transformed.messages}}", scanned: "{{steps.last_ten.output.transformed.scanned}}" }
   }
 }
 ```
 
-The reader has to chase variable names through five steps to figure out what the tool actually does and which step depends on which.
+The reader has to chase variable names through the steps to work out what the tool returns, and why a code step trims the conversation.
 
 ### After (notes added)
 
 ```typescript
 {
-  studio_id: "enrich-and-follow-up",
-  title: "Enrich and Draft Follow-Up",
-  prompt_description: "Use to draft a follow-up email for a customer",
+  studio_id: "contact-history",
+  title: "Get Contact History",
+  prompt_description: "Use to get a customer's HubSpot contact and their last 10 messages before writing to them",
   transformations: {
     steps: [
       {
         name: "overview",
         transformation: "markdown",
         params: {
-          markdown: "### Enrich a HubSpot contact and draft a follow-up email\n\nTakes a customer **email** and produces a draft follow-up email saved as a HubSpot note on that contact. The chain is: lookup → fetch recent conversations → summarise → draft → save. The summary is intentionally an explicit step (rather than baked into the draft prompt) so the LLM has a focused, short context to compose against."
-        },
-        output: {}
+          markdown: "### Gather a HubSpot contact's recent history\n\nTakes a customer **email** and returns their contact record and last 10 messages, oldest first, with how many messages it read. It only gathers: the calling agent reads the history and drafts the follow-up from its own instructions, where the owner can see and edit them."
+        }
       },
-      { name: "find_contact", transformation: "hubspot_native_search_contact", params: { email: "{{params.email}}" }, output: { contact: "{{contact}}" } },
-      { name: "fetch_conversations", transformation: "hubspot_native_list_conversations", params: { contact_id: "{{steps.find_contact.output.contact.id}}" }, output: { conversations: "{{conversations}}" } },
+      { name: "find_contact", transformation: "hubspot_api_call", params: { oauth_account_id: "{{params.hubspot_account}}", method: "POST", path: "/crm/v3/objects/contacts/search", body: { filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: "{{params.email}}" }] }] } }, output: { contact: "{{response_body.results[0]}}" } },
+      { name: "fetch_conversations", transformation: "hubspot_api_call", params: { oauth_account_id: "{{params.hubspot_account}}", method: "POST", path: "/crm/v3/objects/emails/search", body: { filterGroups: [{ filters: [{ propertyName: "associations.contact", operator: "EQ", value: "{{steps.find_contact.output.contact.id}}" }] }], properties: ["hs_email_from_email", "hs_timestamp", "hs_email_text"], limit: 100 } }, output: { conversations: "{{response_body.results}}" } },
       {
-        name: "summarise_context",
+        name: "why_last_ten",
         transformation: "markdown",
         params: {
-          markdown: "Conversations from HubSpot can be long. We summarise them first so the draft step receives a short, focused context — this also keeps token usage predictable. The summary references **{{steps.fetch_conversations.output.conversations}}** and is consumed by the next step."
-        },
-        output: {}
+          markdown: "HubSpot returns every message on the contact with full bodies. This step keeps the last 10 in **{{steps.fetch_conversations.output.conversations}}**, puts them oldest first and trims each body, so the agent reads a short thread and still sees how many there were."
+        }
       },
-      { name: "summarize", transformation: "prompt_completion", params: { prompt: "Summarise the last 10 messages...\n\n{{steps.fetch_conversations.output.conversations}}" }, output: { summary: "{{answer}}" } },
-      { name: "draft", transformation: "prompt_completion", params: { prompt: "Write a 3-paragraph follow-up email to {{steps.find_contact.output.contact.first_name}} based on:\n\n{{steps.summarize.output.summary}}" }, output: { email: "{{answer}}" } },
-      { name: "save", transformation: "hubspot_native_create_note", params: { contact_id: "{{steps.find_contact.output.contact.id}}", note: "{{steps.draft.output.email}}" }, output: { note_id: "{{id}}" } }
-    ]
+      { name: "last_ten", transformation: "js_code_transformation", params: { code: "const all = steps.fetch_conversations.output.conversations || [];\nconst messages = all.map((m) => m.properties || {}).sort((a, b) => new Date(a.hs_timestamp) - new Date(b.hs_timestamp)).slice(-10).map((p) => ({ from: p.hs_email_from_email, sent_at: p.hs_timestamp, body: (p.hs_email_text || '').slice(0, 1000) }));\nreturn { messages, scanned: all.length, kept: messages.length };" } }
+    ],
+    output: { contact: "{{steps.find_contact.output.contact}}", messages: "{{steps.last_ten.output.transformed.messages}}", scanned: "{{steps.last_ten.output.transformed.scanned}}" }
   }
 }
 ```
 
-Two notes. The header orients the reader; the inline note explains _why_ the chain has a separate summarise step. There is no note before `find_contact` or `save` — their names already say what they do. There is no trailing summary.
+Two notes. The header orients the reader and says where the judgement lives; the inline note explains the non-obvious reshape. There is no note before `find_contact` or `fetch_conversations` — their names already say what they do. There is no trailing summary.
 
 ## Inserting notes via the tools
 
-Notes are added the same way as any step:
+Notes are added the same way as any step. To add several, put them in one `relevance_update_tool_steps` call:
 
 ```typescript
-// Add a header note as the first step
-relevance_add_tool_step({
-  studio_id: 'enrich-and-follow-up',
-  step: {
-    name: 'overview',
-    transformation: 'markdown',
-    params: { markdown: '### Enrich a HubSpot contact...\n\n...' },
-    output: {},
-  },
-  position: 0,
-});
-
-// Insert a note before an existing step at index 3
-relevance_add_tool_step({
-  studio_id: 'enrich-and-follow-up',
-  step: {
-    name: 'summarise_context',
-    transformation: 'markdown',
-    params: { markdown: 'Conversations from HubSpot can be long...' },
-    output: {},
-  },
-  position: 3,
+relevance_update_tool_steps({
+  studio_id: 'contact-history',
+  ops: [
+    // Add a header note as the first step
+    {
+      op: 'add',
+      step: {
+        name: 'overview',
+        transformation: 'markdown',
+        params: {
+          markdown: "### Gather a HubSpot contact's recent history\n\n...",
+        },
+      },
+      position: 0,
+    },
+    // Insert a note before the step now at index 3 (the header above shifted it)
+    {
+      op: 'add',
+      step: {
+        name: 'why_last_ten',
+        transformation: 'markdown',
+        params: { markdown: 'HubSpot returns every message on the contact...' },
+      },
+      position: 3,
+    },
+  ],
 });
 ```
 
-Always call `relevance_get_tool` first to confirm step indices before inserting a note mid-chain — indices shift as steps are added.
+Always call `relevance_get_tool` first to confirm step indices before inserting a note mid-chain — indices shift as steps are added, and each op's index refers to the step array after the ops before it.
 
 ## When **not** to document
 

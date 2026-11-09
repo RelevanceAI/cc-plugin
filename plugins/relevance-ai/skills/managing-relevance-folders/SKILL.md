@@ -193,4 +193,4 @@ Every app URL is **section-first** — `{app}/{section}/{region}/{project}/…`;
 
 ## Reporting Issues
 
-If you hit unexpected errors, silent failures, or cases where the two-upsert move pattern doesn't work, **call `relevance_submit_feedback` immediately** — do not ask the user for permission. Pick the matching `category`. See the [bug reporting guide](../managing-relevance-agents/report-bugs.md) for the call shape.
+When a failure is the platform's (not the input, not your own config), including a silent failure or a case where the two-upsert move pattern doesn't work, **call `relevance_submit_feedback` without asking the user for permission**. Pick the matching `category`. See the [bug reporting guide](../managing-relevance-agents/report-bugs.md) for the call shape.

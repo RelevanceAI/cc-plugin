@@ -56,7 +56,7 @@ params_schema: {
 }
 ```
 
-If you find an existing tool with this mistake, replace the plain-string input with the `oauth_account` form above and re-point the step's `oauth_account_id: "{{params.<name>}}"`. (Hardcoding the id at the **tool** level via `default` + `is_fixed_param` is only valid once the param already carries the OAuth metadata — see [OAuth for Agent-Called Tools](#critical-oauth-for-agent-called-tools).)
+If you find an existing tool with this mistake, replace the plain-string input with the `oauth_account` form above and re-point the step's `oauth_account_id: "{{params.<name>}}"`. For an agent that should always use one account, set it on the agent's tool instead — see [OAuth for Agent-Called Tools](#critical-oauth-for-agent-called-tools).
 
 ## Define OAuth Parameter
 
@@ -112,20 +112,22 @@ Reference the OAuth parameter using `oauth_account_id`:
 
 ## Common OAuth Providers
 
-| Provider        | Permission Type                     | Description            |
-| --------------- | ----------------------------------- | ---------------------- |
-| `hubspot`       | `hubspot-connect-app`               | HubSpot CRM API        |
-| `ahrefs`        | `pipedream-ahrefs-read-write`       | Ahrefs API access      |
-| `google`        | `email-read-write`                  | Gmail read/write       |
-| `google`        | `calendar-read-write`               | Google Calendar        |
-| `google_sheets` | `google-sheets-read-write`          | Google Sheets          |
-| `google_drive`  | `pipedream-google-drive-read-write` | Google Drive           |
-| `slack`         | `slack-channel-post`                | Post to Slack channels |
-| `slack`         | `slack-notifications`               | Slack notifications    |
-| `github`        | `pipedream-github-read-write`       | GitHub API access      |
-| `notion`        | `pipedream-notion-read-write`       | Notion API access      |
-| `twitter`       | `twitter-read-write`                | Twitter/X API access   |
-| `linkedin`      | `unipile-linkedin`                  | LinkedIn via Unipile   |
+| Provider              | Permission Type                     | Description                        |
+| --------------------- | ----------------------------------- | ---------------------------------- |
+| `hubspot`             | `hubspot-connect-app`               | HubSpot CRM API                    |
+| `ahrefs`              | `pipedream-ahrefs-read-write`       | Ahrefs API access                  |
+| `google`              | `email-read-write`                  | Gmail read/write                   |
+| `google`              | `calendar-read-write`               | Google Calendar                    |
+| `google`              | `google-docs-read-write`            | Google Docs                        |
+| `google_sheets`       | `google-sheets-read-write`          | Google Sheets                      |
+| `google_drive`        | `pipedream-google-drive-read-write` | Google Drive                       |
+| `google_drive_native` | `google-drive-read-write`           | Google Drive, Docs, Sheets, Slides |
+| `slack`               | `slack-channel-post`                | Post to Slack channels             |
+| `slack`               | `slack-notifications`               | Slack notifications                |
+| `github`              | `pipedream-github-read-write`       | GitHub API access                  |
+| `notion`              | `pipedream-notion-read-write`       | Notion API access                  |
+| `twitter`             | `twitter-read-write`                | Twitter/X API access               |
+| `linkedin`            | `unipile-linkedin`                  | LinkedIn via Unipile               |
 
 ## Complete Example: Ahrefs Backlink Tool
 
@@ -183,8 +185,8 @@ relevance_create_tool({
 ## Listing Available OAuth Accounts
 
 ```typescript
-// List all connected OAuth accounts
-relevance_list_oauth_accounts();
+// List all connected OAuth accounts, or one provider's
+relevance_list_oauth_accounts({ provider: 'ahrefs' });
 
 // Returns:
 {
@@ -193,21 +195,19 @@ relevance_list_oauth_accounts();
       account_id: '<your-oauth-account-id>',
       provider: 'ahrefs',
       label: 'Ahrefs',
-      tokens: [
-        {
-          token_id: '...',
-          permission_types: ['pipedream-ahrefs-read-write'],
-          scopes: ['ahrefs'],
-        },
-      ],
+      connected_by_you: true,
+      tokens: [{ permission_types: ['pipedream-ahrefs-read-write'] }],
     },
-  ];
+  ],
+  setup_url: 'https://app.relevanceai.com/integrations/...?provider=ahrefs&type=oauth',
 }
 ```
 
+A token needing reconnection carries `refresh_token_invalid: true`. `connected_by_you: false` marks an account this user didn't connect, usually one a teammate shared with the project: runs on it act as whoever connected it, in their account and with their access. With `provider`, `setup_url` is where the user connects an account of their own. Pass `detail: 'full'` for each token's scopes, metadata and dates.
+
 ## Finding Transformation OAuth Requirements
 
-Use `relevance_get_transformation_requirements({ transformation_id })` — it lists the OAuth providers and API keys the step requires, and cross-references them against the project's connected accounts and configured keys in one call. Missing providers come back with `status: 'missing'` plus a setup URL the user can click.
+Use `relevance_get_transformation_requirements({ transformation_id })` — it lists the OAuth providers and API keys the step requires, and cross-references them against the project's connected accounts and configured keys in one call. Missing providers come back with `status: 'missing'` plus a setup URL the user can click. So does a provider whose accounts are connected without the permission the step needs; `accounts_missing_permission` counts them, and the fix is a reconnect with that permission ticked, or another connector that covers the job.
 
 ```typescript
 relevance_get_transformation_requirements({
@@ -217,33 +217,41 @@ relevance_get_transformation_requirements({
 
 If you only need the raw schema (e.g. you're inspecting `oauth_permissions` metadata directly), call `relevance_get_transformation({ transformation_id })` and read `input_schema.properties.oauth_account_id.metadata.oauth_permissions`.
 
+## Choosing the account
+
+A provider can have several connected accounts, and a blank account input runs as the provider's first one, whoever that is. So choose one on purpose, once per provider per conversation.
+
+First make sure it is the right provider. One vendor can have several, each with its own permissions: Google Docs can be written through `google` with `google-docs-read-write`, or through `google_drive_native`. An account without the step's permission cannot run it. Before asking the user to connect or reconnect, list their accounts with no provider filter and `detail: 'full'`; if another connected provider covers the job, switch to its native step.
+
+1. List the provider's accounts with `relevance_list_oauth_accounts({ provider })`. An account is **usable** when it is shared with the project (`namespace: "project"`, or no `namespace` on an older account) or connected by this user (`connected_by_you: true`), and none of its tokens has `refresh_token_invalid: true`. Never offer or use a colleague's private account.
+2. If the account marked `default_oauth_account: true` is usable, use it: the user chose it. If the only usable account has `connected_by_you: true`, use that. Otherwise ask the user, and keep using the answer:
+   - Several usable accounts: ask which one, offering them.
+   - The only usable account is someone else's: name it by its label, say it isn't one they connected and that runs will act as whoever connected it, and offer either using it or connecting their own at the listing's `setup_url`.
+   - The only account needing reconnection is someone else's: the user can't reconnect it, so offer connecting their own at the listing's `setup_url`, or asking whoever connected it to reconnect.
+
+   When the build uses an account the user didn't connect, name it again when you hand the build back.
+
+3. Pass its `account_id` everywhere the account goes:
+
+| Where                          | How                                                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| Running a tool step            | the step's OAuth input, usually `oauth_account_id`                                                   |
+| Running a tool                 | the tool's OAuth input                                                                               |
+| Attaching tools to an agent    | `oauth_account_ids` on `relevance_attach_tools_to_agent`, one per provider                           |
+| A tool already on an agent     | `default_values` via `relevance_update_agent_action`, which merges by key, so send just the account  |
+| An agent trigger               | `oauth_account_id` inside `trigger_config` on `relevance_create_trigger`                             |
+| A workforce trigger            | the trigger node's `oauth_account_id` in `relevance_create_workforce` / `relevance_update_workforce` |
+| Work you hand to another agent | the `account_id` in its instructions                                                                 |
+
+No account of that provider connected at all? Leave the input unset and send the user the setup link: omit it from `default_values` (send `null` to remove one already there), never an empty string. Once they connect, set the new `account_id` wherever the input goes: a blank input runs as the provider's first account, which may not be theirs. If accounts exist but none is usable, follow step 2 and the permission check above: ask the user to choose, reconnect or switch connector. Never write a placeholder or made-up account id: a value that matches no account fails every real run, even after one is connected.
+
 ## CRITICAL: OAuth for Agent-Called Tools
 
-Agent actions can't carry `oauth_account_id` directly — the action config schema has no `params` field, and trying to add one fails with `"must NOT have additional properties"`. Common symptom: `"You need to add your chains_<provider>_api_key API key"`.
+Put the account on the **agent's tool**, not on the tool itself. When an agent calls a tool, the account comes from that attached tool's `default_values`, and the input is set to "Set manually" (`overrides.params_schema.properties.<param>.metadata.is_fixed_param: true`) so the agent can't change it.
 
-**Fix:** put the OAuth account on the **tool**, not the action. Call `relevance_get_tool` first, then `relevance_update_tool` with the **complete** `params_schema` (every existing property) — `update_tool` replaces `params_schema` wholesale, so a partial one drops the other params. On the OAuth param set: `default: "<oauth_account_id>"` (provides the value when the tool is called without it) AND `metadata.is_fixed_param: true` (hides the field from the UI). Both are required — `is_fixed_param` alone does not provide a value. Keep the rest of the OAuth metadata (`content_type: "oauth_account"`, `oauth_account_provider`, `oauth_permissions`) intact.
+`relevance_attach_tools_to_agent` sets both: it fills in the account passed in `oauth_account_ids`, or the provider's only account. When that only account is someone else's, its `message` says so: ask as in [Choosing the account](#choosing-the-account) step 2. For a tool that's already attached, set it with `relevance_update_agent_action` as in the table above.
 
-### Key Insights
-
-| Field                   | Purpose                                                                   |
-| ----------------------- | ------------------------------------------------------------------------- |
-| `is_fixed_param: true`  | Hides the field from UI (user doesn't see it)                             |
-| `default: "account-id"` | **Actually provides the value** when tool is called without the parameter |
-
-**Both are required for agent-called tools:**
-
-- `is_fixed_param` alone does NOT provide a value
-- `default` is what the tool actually receives when called by an agent
-
-### OAuth Setup Checklist for Agent Tools
-
-- [ ] Add `oauth_account_id` parameter to tool's `params_schema`
-- [ ] Set `"type": "string"`
-- [ ] Add `metadata.content_type: "oauth_account"`
-- [ ] Add `metadata.oauth_account_provider: "hubspot"` (or appropriate provider)
-- [ ] Add `metadata.is_fixed_param: true` (hides from UI)
-- [ ] **Add `"default": "your-oauth-account-id"`** (CRITICAL!)
-- [ ] Add `metadata.oauth_permissions` array
+Don't set the account as a `default` in the tool's own `params_schema`. Every agent and user of the tool shares that default, so a private account there acts as its owner for everyone.
 
 ---
 
@@ -265,4 +273,4 @@ Some transformations have required fields beyond OAuth. Check the transformation
 
 ### "You need to add your chains_xxx_api_key API key" (Agent calling tool)
 
-The tool's `params_schema` is missing the `default` value for `oauth_account_id`. Add it to the tool definition (see "OAuth for Agent-Called Tools" section above).
+The agent's tool has no account for its OAuth input. Set it in the attached tool's `default_values` (see "OAuth for Agent-Called Tools" above).

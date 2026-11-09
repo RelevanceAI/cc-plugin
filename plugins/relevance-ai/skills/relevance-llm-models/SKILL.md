@@ -58,7 +58,7 @@ Within a vendor family, a higher version number supersedes a lower one — a mid
 
 Two rules that follow:
 
-1. If `relevance_list_llm_models` returns a family version — or a `release_date` — newer than anything [current-picks.md](current-picks.md) mentions, it is newer than this guidance. Prefer it, and tell the user the model guidance needs refreshing.
+1. Compare within a family and tier, not against the newest id the picks name. If `relevance_list_llm_models` lists a newer version of an id a row of [current-picks.md](current-picks.md) names — a newer Sonnet than that row's Sonnet, a newer Luna than its Luna — use it in that row's place, and tell the user the model guidance needs refreshing.
 2. Vendors rename constantly and a tier name can be an alias that silently re-points. Do not infer a model's rank from a remembered tier name — take it from the listing.
 
 Prefer the floating id over a dated snapshot. Pinned dates carry no extra information here and inherit no updates; pin only when a specific snapshot's behaviour is being relied on and someone owns re-validating it.
@@ -76,7 +76,6 @@ Read these off the model's own config from `relevance_list_llm_models` — never
 ## Never pick these
 
 - **`openai-gpt-4o` and `openai-gpt-4o-mini`.** Superseded generations whose stored descriptions still recommend a model that is itself now two generations behind. This pair is the documented cause of previous bad model choices.
-- **`openai-o1-latest`, `openai-o3-mini`, `openai-o4-mini`.** The standalone reasoning line has been folded into the main families' effort ladders. Use a current model at a higher effort instead.
 
 If a resource you read back is on any of these, say so and offer to move it.
 

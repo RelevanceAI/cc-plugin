@@ -20,7 +20,7 @@ Per-resource scorecard. Pick `resource_type`: `agent`, `workforce`, or `tool`. R
 relevance_get_analytics_resource_breakdown({
   resource_type: 'agent',
   start_date: '2026-03-01',
-  end_date: '2026-03-31',
+  end_date: '2026-04-01',
 });
 ```
 
@@ -60,11 +60,11 @@ Daily usage time series for one project metric, with a summary. Use for usage tr
 **Metrics:** `total_tasks`, `total_actions`, `total_credits`, `tasks_to_review`, `daily_active_users`, `tasks_escalated`
 
 ```typescript
-// Credit spend over the last 30 days
+// Credit spend for all of March
 relevance_get_analytics_usage_timeseries({
   metric: 'total_credits',
   start_date: '2026-03-01',
-  end_date: '2026-03-31',
+  end_date: '2026-04-01',
 });
 ```
 
@@ -115,7 +115,7 @@ relevance_get_analytics_usage_breakdown({
   resource_type: 'agent',
   metric: 'credit',
   start_date: '2026-03-01',
-  end_date: '2026-03-31',
+  end_date: '2026-04-01',
 });
 ```
 
@@ -144,6 +144,7 @@ Use `relevance_get_analytics_usage_breakdown` with `resource_type` `agent` / `to
 ## Tips
 
 1. **Date formats:** `relevance_get_analytics_resource_breakdown`, `relevance_get_analytics_usage_timeseries`, `relevance_get_analytics_agent_activity_timeseries`, and `relevance_get_analytics_usage_breakdown` take `YYYY-MM-DD`. `relevance_get_analytics_errors` and `relevance_get_analytics_task_status_counts` take full ISO 8601 datetimes (e.g. `2026-03-01T00:00:00.000Z`).
-2. **Access-limited tools:** some analytics tools need elevated project permissions or product entitlement. If a tool returns a permission / forbidden / entitlement / access-denied error, treat that signal as unavailable — don't retry repeatedly or read it as zero data.
-3. **One breakdown tool:** `relevance_get_analytics_resource_breakdown` covers agents, workforces, and tools — switch with `resource_type`.
-4. **Pagination:** `relevance_get_analytics_errors` supports cursor-based pagination via `cursor`.
+2. **The end date isn't included** for `relevance_get_analytics_resource_breakdown`, `relevance_get_analytics_usage_timeseries` and `relevance_get_analytics_usage_breakdown`: data stops at 00:00 UTC on `end_date`. For a range ending on a day, send the day after it (all of March is `start_date: '2026-03-01', end_date: '2026-04-01'`). `relevance_get_analytics_agent_activity_timeseries` is mixed: its state series include `end_date`, but its task-creation counts stop at 00:00 UTC on it.
+3. **Access-limited tools:** some analytics tools need elevated project permissions or product entitlement. If a tool returns a permission / forbidden / entitlement / access-denied error, treat that signal as unavailable — don't retry repeatedly or read it as zero data.
+4. **One breakdown tool:** `relevance_get_analytics_resource_breakdown` covers agents, workforces, and tools — switch with `resource_type`.
+5. **Pagination:** `relevance_get_analytics_errors` supports cursor-based pagination via `cursor`.

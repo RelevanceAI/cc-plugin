@@ -1,11 +1,11 @@
 ---
 title: Workforce Triggers
-description: Attach Slack / Gmail / Outlook / recurring / custom_webhook / Salesforce / HubSpot / Jira / Calendar / LinkedIn / WhatsApp / Telegram / tool_trigger trigger nodes to a workforce. Load when building a workforce that needs to run on an external event, schedule, or as a tool of another workforce.
+description: Attach Slack / Gmail / Outlook / recurring / custom_webhook / Salesforce / HubSpot / Jira / Calendar / LinkedIn / WhatsApp / Telegram / tool_trigger trigger nodes to a workforce. Load when building a workforce that needs to run on an external event, on a schedule, or once per item a scheduled tool returns.
 ---
 
 # Workforce Triggers
 
-Configure trigger **nodes** on a workforce so it runs on an external event (email, Slack message, webhook, CRM record change, …), on a schedule, or as a tool another agent can call. Pass the trigger configs to `relevance_create_workforce` via the `triggers` argument.
+Configure trigger **nodes** on a workforce so it runs on an external event (email, Slack message, webhook, CRM record change, …), on a schedule, or once per item a scheduled tool returns. Pass the trigger configs to `relevance_create_workforce` via the `triggers` argument.
 
 > **Sibling skill:** [`../managing-relevance-agents/triggers.md`](../managing-relevance-agents/triggers.md) covers **agent-level** triggers (attached to a standalone agent via `relevance_create_trigger`). Workforce triggers attach to the workforce graph's trigger node and use a different (nested) config shape — same underlying vendors, two attachment points. Pick whichever maps to the entity that owns the run.
 
@@ -26,7 +26,7 @@ relevance_create_workforce({
 });
 ```
 
-> **Every workforce always carries a manual trigger.** When you pass `triggers` with only `auto` entries, a `{ type: 'manual' }` node is appended automatically (every workforce always starts with one). That preserves the `relevance_trigger_workforce` testing path, which fires the manual trigger. Caller-supplied trigger indices in `edges[].source.index` stay stable — the manual is appended at the end. The appended manual is also auto-wired: it mirrors the target of your first trigger edge (so a manual test run drops into the same downstream graph as the auto trigger). If you supply a manual trigger yourself, you own its wiring — the auto-wire only applies to the manual that was appended for you. To remove the manual entirely, send a follow-up `relevance_update_workforce` with `remove_node_ids` (rare).
+> **Every workforce always carries a manual trigger.** When you pass `triggers` with only `auto` entries, a `{ type: 'manual' }` node is appended automatically (every workforce always starts with one). That preserves the `relevance_trigger_workforce` testing path, which fires the manual trigger. Caller-supplied trigger indices in `edges[].source.index` stay stable — the manual is appended at the end. The appended manual is also auto-wired: it mirrors the target of your first trigger edge (so a manual test run drops into the same downstream graph as the auto trigger). If you supply a manual trigger yourself, you own its wiring — the auto-wire only applies to the manual that was appended for you. To remove the manual entirely, send a follow-up `relevance_update_workforce` with `remove_node_ids` (rare). Evals also enter through the manual trigger. If it reaches the same node as an auto trigger, shape eval openers like that trigger's message (see the `relevance-evals` skill's "Grounding in real runs" runbook); if not, tell the user before writing scenarios — an eval would test a different path from real traffic.
 
 ## Multiple Trigger Nodes
 
@@ -43,8 +43,8 @@ relevance_create_workforce({
         config: {
           type: 'recurring',
           recurring: {
-            name: 'Daily scan',
-            message: 'Scan CRM for new leads',
+            name: 'Daily pipeline summary',
+            message: "Summarise yesterday's new leads for the sales channel",
             schedule: { frequency: 'daily', hour: '09:00', timezone: 'UTC' },
           },
         },
@@ -100,7 +100,7 @@ Whether a trigger can save without an OAuth account depends on the vendor's `pri
 
 ### Save-anyway vendors
 
-`private_settings.required: []` — the workforce saves as a draft without an OAuth account; the trigger fires once the user connects the provider.
+`private_settings.required: []` — the workforce saves as a draft without an OAuth account. Saving is not firing: every trigger needs the workforce published first ([Enabling / Disabling a Trigger](#enabling--disabling-a-trigger)), and the [HubSpot](#hubspot), [tool_trigger](#tool_trigger-one-workforce-run-per-item-a-tool-returns) and [ZoomInfo](#zoominfo-legacy) sections list what else they need.
 
 - `hubspot` (line 762)
 - `recurring` (`shared_settings.required: ["schedule"]`)
@@ -142,11 +142,11 @@ relevance_create_workforce({
 | `salesforce`                                   | `["oauth_account_id"]`                                            | sync_configs.ts:952           |
 | `unipile_linkedin` / `_whatsapp` / `_telegram` | `["oauth_account_id", "oauth_account_label", "provider_user_id"]` | sync_configs.ts:787, 812, 837 |
 
-When the provider isn't connected, save the workforce without the trigger, ask the user to connect it in Integrations, then add the trigger via `relevance_update_workforce` with the populated `oauth_account_id`. Saving with `oauth_account_id` omitted is rejected by `SaveWorkforce` (and pre-validated by the tools).
+When the provider isn't connected, save the workforce without the trigger, ask the user to connect it in Integrations, then add the trigger via `relevance_update_workforce`'s `triggers` input with the populated `oauth_account_id`, and wire it with `edges` (`source: { kind: 'trigger', index: 0 }`, `target: { node_id: '<agent node_id>' }`). Saving with `oauth_account_id` omitted is rejected by `SaveWorkforce` (and pre-validated by the tools).
 
 ## Trigger Types
 
-These are the trigger `type` values the workforce builder exposes — and therefore the only ones the tools accept. The list mirrors `apps/builder-app/features/workforce/definitions.ts`. Backend-only sync types (`webhook`, `pipedream`, `sharepoint`, `notion`, `confluence`, `zoom`, `external_relay`, `bulk_*`, etc.) are deliberately not callable through `relevance_create_workforce` / `relevance_update_workforce`.
+These are the trigger `type` values the Relevance tools create: the ones the platform's sync type registry marks available or premium. Generic-integration (Pipedream) connectors, which the builder lists separately, are set up in the app. A trigger node of a type the pickers don't offer (older or not yet offered: `webhook`, `sharepoint`, `notion`, `confluence`, `zoom`, `google_drive_pipedream`, `whatsapp`) can be kept as it is through `relevance_update_workforce`, but not added or changed. File (`filesystem`) triggers are retired: a workforce that still has a filesystem trigger node saves as a draft but can't be published until the node is removed. Internal sync types (`external_relay`, `bulk_*`, etc.) can't be used at all. Run in bulk (one workforce run per row of a CSV or knowledge table) isn't a trigger node either: start it with the bulk-run tool, or the user starts it from Run in bulk on the workforce's page.
 
 For OAuth fields per vendor, see [OAuth handling per vendor](#oauth-handling-per-vendor-save-anyway-vs-connect-first) above.
 
@@ -159,17 +159,16 @@ The standard workforce triggers. Always present in the builder picker (subject t
 | `manual`                | —     | Manual / API-triggered runs (default)             |
 | `recurring`             | No    | Scheduled execution (cron, every N min, daily, …) |
 | `custom_webhook`        | No    | Zapier / Make / CRM workflows with field mapping  |
-| `tool_trigger`          | Yes   | Workforce run as a tool from another agent        |
+| `tool_trigger`          | No    | A tool on a schedule; one run per item it returns |
 | `gmail`                 | Yes   | Incoming Gmail                                    |
 | `outlook`               | Yes   | Incoming Outlook email                            |
 | `slack`                 | Yes   | Slack message in connected channel                |
 | `teams`                 | Yes   | Microsoft Teams message (feature-gated)           |
 | `google_calendar`       | Yes   | Google Calendar event                             |
 | `teams_calendar`        | Yes   | Microsoft Teams Calendar event                    |
-| `hubspot`               | Yes   | HubSpot CRM event                                 |
+| `hubspot`               | Yes   | A HubSpot workflow the user builds calls it       |
 | `jira`                  | Yes   | Jira issue event (feature-gated)                  |
 | `google_drive`          | Yes   | Google Drive file change (feature-gated)          |
-| `filesystem`            | —     | Mounted filesystem changes (feature-gated)        |
 | `relevance_meeting_bot` | No    | Relevance meeting-bot post-call event             |
 | `zoominfo`              | No    | ZoomInfo intent-data polling (legacy)             |
 | `freshdesk`             | No    | Freshdesk ticket events (legacy)                  |
@@ -196,13 +195,13 @@ Requires the Enterprise plan.
 
 `zapier` lives outside these tools — point users at `https://zapier.com/apps/relevance-ai/integrations`. Do not try to set up `zapier` as a `sync_data.config.type`; it is not a backend sync type.
 
-### Coming soon (not callable)
+### Coming soon (not creatable)
 
-`whatsapp` is listed in the UI for awareness but is not yet wired up. The tools reject it. Use `unipile_whatsapp` if the user wants WhatsApp today.
+`whatsapp` is listed in the UI for awareness but is not yet wired up. The tools won't add or change it, though an existing node of that type can be kept as it is. Use `unipile_whatsapp` if the user wants WhatsApp today.
 
 ### Feature-gated triggers
 
-`teams`, `jira`, `google_drive`, and `filesystem` are gated behind PostHog feature flags and may not be visible in every org. If `relevance_list_oauth_accounts` doesn't return the provider you need, or the user reports they can't see a trigger in the builder, the trigger is gated for that org and the workforce save will fail. Surface this back to the user instead of retrying.
+`teams`, `jira` and `google_drive` are behind PostHog feature flags that only hide them in the builder's picker, so a user may not see one there. The tools don't check these flags.
 
 ### Recurring (schedule)
 
@@ -223,12 +222,15 @@ sync_data: {
         // monthly:   day_of_month: '1' (1-31 or 'last_day')
         // annually:  day_of_month + month
         // no_repeat: date: 'YYYY-MM-DD' (future)
-        // custom_cron: cron_expression: '0 9 ? * MON-FRI *' (hour/timezone not needed)
+        // custom_cron: cron_expression: '0 9 ? * MON-FRI *' (no hour; still set timezone, or the cron runs in UTC)
+        // end_date: 'YYYY-MM-DD' (optional, any frequency but no_repeat): last day it runs, then the trigger turns itself off
       },
     },
   },
 }
 ```
+
+A trigger that waits for one event needs a stop (`no_repeat` or `end_date`), and the hand-back says when it stops: see the agent triggers skill's [Waiting for one thing to happen](../managing-relevance-agents/triggers.md#waiting-for-one-thing-to-happen). It applies to a workforce's triggers unchanged.
 
 ### custom_webhook (Zapier / Make / CRM flow)
 
@@ -248,22 +250,26 @@ sync_data: {
 }
 ```
 
-### tool_trigger (workforce fired by a tool's output)
+### tool_trigger (one workforce run per item a tool returns)
 
-Required: `name`, `run_schedule`, `tool_config.{id, region, project, output_field}` (see `sync_configs.ts:345-406`).
+Runs a tool on `run_schedule` and starts one workforce run per element of the array at the tool's output key `tool_config.output_field`. It works the same on a single agent; the agent triggers skill's [Tool Trigger](../managing-relevance-agents/triggers.md#tool-trigger) section has the setup steps (shape the output, publish the tool, run it once, pick `dedupe_field`) and they apply here unchanged. Only the wrapper differs: here the config sits under `sync_data.config.tool_trigger`, and the trigger is created when the workforce is published. Use it instead of a recurring trigger whose message has an agent fetch the list and loop over it ([why](../managing-relevance-agents/SKILL.md#a-tool-that-lists-the-work-starts-the-agent)). For a list the user already has (a CSV or a knowledge table), start a bulk run instead, with the bulk-run tool or Run in bulk on the workforce's page ([many-items.md](../managing-relevance-agents/many-items.md#run-in-bulk-a-list-you-already-have)). When converting one, pause the old recurring trigger with `relevance_update_workforce_trigger_status` before publishing any agent changes, and let already-running tasks finish. Reconcile the backlog and preserve the old handled-id exclusions across polls as [Converting an agent that already works through a list](../managing-relevance-agents/many-items.md#converting-an-agent-that-already-works-through-a-list) says. Publish the agents' one-record prompts while the old trigger stays paused, since publishing the workforce doesn't publish its agents. Then add the `tool_trigger` node and remove the recurring node in the same workforce publish.
 
-`run_schedule` takes the same shape as a recurring trigger's `schedule` — the same per-frequency required fields apply (every frequency except `custom_cron` needs `hour` + `timezone`; `minutely` also needs `minute_interval` >= 10, etc.).
+Required: `name`, `run_schedule`, `tool_config.{id, region, project, output_field}` (see `toolTriggerSyncDataConfig` in `sync_configs.ts`). Optional: `dedupe_field`, `message_template`, `tool_config.params`.
 
-**Precondition:** the source tool must declare `output_field` via `relevance_set_tool_output` AND must actually return that key at runtime. `output_field` is read by literal key lookup against the tool's runtime output. See [`../managing-relevance-tools/outputs.md`](../managing-relevance-tools/outputs.md) for the full model.
+`run_schedule` takes the same shape as a recurring trigger's `schedule` — the same per-frequency required fields apply (every frequency except `custom_cron` needs `hour` + `timezone`; `minutely` also needs `minute_interval` >= 10, etc.). Give a `custom_cron` the user's `timezone` too, or it runs in UTC.
 
-> **⚠️ Don't change the source tool's outputs after wiring it as a trigger.** Removing or renaming a key that any `tool_trigger.output_field` points at causes the trigger to fail with `Tool output field not found`, without surfacing the failure to the user. If you must change the tool's output shape, surface it explicitly to the user and update the trigger's `output_field` in the same change.
+**Precondition:** the source tool must return `output_field` as a top-level key at runtime, holding an array of objects. It is read by literal key lookup, not a path. Declare the key with `relevance_set_tool_output` too, so it stays stable; see [`../managing-relevance-tools/outputs.md`](../managing-relevance-tools/outputs.md) for the full model.
+
+**Set `dedupe_field` whenever the tool polls a source.** Without it every run starts a new workforce run for every item, including ones already handled. Have the tool return an empty list, not an error, when nothing is new, and a generous window rather than a small cap ([why](../managing-relevance-agents/many-items.md#tool-trigger-a-source-you-check)).
+
+> **⚠️ Don't change the source tool's outputs after wiring it as a trigger.** Removing or renaming a key that any `tool_trigger.output_field` points at causes the trigger to fail with `Tool output field not found`, which is easy to miss: only the trigger's status and trigger alarms can show it, and only where trigger run recording is on. If you must change the tool's output shape, surface it explicitly to the user and update the trigger's `output_field` in the same change.
 
 ```typescript
 sync_data: {
   config: {
     type: 'tool_trigger',
     tool_trigger: {
-      name: 'Run lead-qualifier workforce',
+      name: 'Qualify new leads',
       run_schedule: {
         frequency: 'minutely',
         minute_interval: '15', // min 10
@@ -274,43 +280,47 @@ sync_data: {
         id: '<tool-id from relevance_list_tools>',
         region: '<from relevance_get_project_info>',
         project: '<project-id>',
-        // `output_field` matches a key the source tool declares via `relevance_set_tool_output`.
-        output_field: 'qualified_leads',
+        // A top-level key of the tool's output that holds an array of objects.
+        output_field: 'leads',
       },
+      dedupe_field: 'id', // a field of each item that identifies the record
+      message_template: 'Qualify this lead: {{name}} <{{email}}>, id {{id}}',
     },
   },
 }
 ```
 
-**End-to-end example.** Create the tool with its step(s) and the paired output map + schema in one shot, then reference it from the trigger:
+**End-to-end example.** Create the tool with its step(s) and the paired output map + schema in one shot, publish it, then reference it from the trigger:
 
 ```typescript
 const tool = await relevance_create_tool({
-  title: 'Beep/boop sequence',
+  title: 'New leads',
   transformations: {
     steps: [
       {
-        name: 'gen',
-        transformation: 'javascript_code',
+        name: 'fetch',
+        transformation: 'js_code_transformation',
         params: {
-          code: "const beeps = Array(5).fill('beep'); const boops = Array(3).fill('boop'); return { sequence: [...beeps, ...boops].join(' ') };",
+          code: "return { leads: [{ id: 'L-1', name: 'Ada', email: 'ada@example.com' }, { id: 'L-2', name: 'Lin', email: 'lin@example.com' }] };",
         },
-        output: { sequence: '{{transformed.sequence}}' },
       },
     ],
-    output: { sequence: '{{steps.gen.output.sequence}}' },
+    output: { leads: '{{steps.fetch.output.transformed.leads}}' },
   },
   output_schema: {
-    metadata: { field_order: ['sequence'] },
-    properties: { sequence: { metadata: { render_mode: 'raw' } } },
+    metadata: { field_order: ['leads'] },
+    properties: { leads: { metadata: { render_mode: 'table' } } },
   },
 });
+
+// The trigger runs the published version.
+await relevance_publish_tool({ tool_id: tool.studio_id });
 
 const project = await relevance_get_project_info();
 
 await relevance_create_workforce({
-  name: 'Beep/boop workforce',
-  agents: [{ agentId: orchestrator.agent_id }],
+  name: 'Lead qualifier',
+  agents: [{ agentId: qualifier.agent_id }],
   triggers: [
     {
       type: 'auto',
@@ -318,7 +328,7 @@ await relevance_create_workforce({
         config: {
           type: 'tool_trigger',
           tool_trigger: {
-            name: 'Run on tool output',
+            name: 'Qualify new leads',
             run_schedule: {
               frequency: 'minutely',
               minute_interval: '15',
@@ -329,8 +339,11 @@ await relevance_create_workforce({
               id: tool.studio_id,
               region: project.region,
               project: project.project_id,
-              output_field: 'sequence',
+              output_field: 'leads',
             },
+            dedupe_field: 'id',
+            message_template:
+              'Qualify this lead: {{name}} <{{email}}>, id {{id}}',
           },
         },
       },
@@ -338,6 +351,8 @@ await relevance_create_workforce({
   ],
 });
 ```
+
+Each run of the tool starts one workforce run per lead (two here), and a lead whose `id` has been seen before starts nothing.
 
 ### Gmail / Outlook (incoming email)
 
@@ -364,7 +379,7 @@ sync_data: {
     type: 'slack',
     slack: {
       oauth_account_id: '<slack-oauth-account-uuid>', // REQUIRED
-      channels: ['C07AGHNGV9Q'], // channel IDs, not names
+      channels: ['C0123456789'], // channel IDs, not names
       keywords: { values: [], config: { case_sensitive: false } }, // empty = match all
       user_ids: [],
       thread_reply_mode: 'auto', // 'auto' or 'none'
@@ -435,6 +450,8 @@ sync_data: {
 
 ### HubSpot
 
+A `hubspot` trigger fires only when a HubSpot workflow the user builds runs the Relevance action, using the token from the trigger's setup in the Relevance app.
+
 ```typescript
 sync_data: {
   config: {
@@ -448,6 +465,8 @@ sync_data: {
   },
 }
 ```
+
+Saved as `hubspot: {}`, it is a placeholder, not a working trigger. It fires only once the workforce is published, HubSpot has been connected in the trigger's setup in the Relevance app, so the trigger carries the portal's `provider_user_id` that HubSpot's calls are matched on, a workflow token has been generated there, and a HubSpot workflow runs the Relevance "Agent Trigger" action with that token.
 
 ### Jira
 
@@ -475,19 +494,6 @@ sync_data: {
       oauth_account_id: '<google-oauth-account-uuid>', // REQUIRED
       oauth_account_label: 'Work drive',
     },
-  },
-}
-```
-
-### Filesystem
-
-Watches a mounted filesystem volume for changes. Feature-gated — the user must have the `FilesystemSync` flag enabled.
-
-```typescript
-sync_data: {
-  config: {
-    type: 'filesystem',
-    filesystem: { volume_key: '<volume-key>' },
   },
 }
 ```
@@ -563,14 +569,14 @@ sync_data: {
 
 ```typescript
 relevance_list_oauth_accounts();
-// → { results: [{ account_id, provider, label, provider_user_id, ... }] }
+// → { results: [{ account_id, provider, label, provider_user_id, connected_by_you, ... }] }
 ```
 
-Pick the account whose `provider` matches the trigger vendor (e.g. `google`, `slack`, `microsoft`, `unipile`, `hubspot`, `salesforce`, `jira`). For Unipile triggers, also pass `provider_user_id` from the same OAuth account.
+Use an account whose `provider` matches the trigger vendor (e.g. `google`, `slack`, `microsoft`, `unipile`, `hubspot`, `salesforce`, `jira`), chosen as in [Choosing the account](../managing-relevance-tools/oauth.md#choosing-the-account): ask before using one the user didn't connect (`connected_by_you: false`). For Unipile triggers, also pass `provider_user_id` from the same OAuth account.
 
 ## Updating a Trigger After Creation
 
-Trigger nodes are part of the workforce graph, so updating them goes through `relevance_update_workforce` (not `relevance_create_trigger`, which is for agent-level triggers). Fetch the current graph, patch the trigger node's `config`, and pass the modified `workforce_graph` back:
+Trigger nodes are part of the workforce graph, so updating them goes through `relevance_update_workforce` (not `relevance_create_trigger`, which is for agent-level triggers). Fetch the current graph, patch the trigger node's `config`, and send back only that node. A node you send replaces the saved one whole, so sending the whole graph you fetched would undo any change made to the other nodes since:
 
 ```typescript
 const wf = await relevance_get_workforce({ workforce_id: '...' });
@@ -588,7 +594,7 @@ triggerNode.config = {
 };
 await relevance_update_workforce({
   workforce_id: '...',
-  workforce_graph: wf.workforce_graph,
+  workforce_graph: { nodes: [triggerNode] },
 });
 ```
 
@@ -609,7 +615,8 @@ Works only after the workforce is **published** — trigger syncs are persisted 
 ## Common Pitfalls
 
 - **Manual + auto in one node is not a thing.** Each trigger node is one mode. Add a second trigger node if you need both.
+- **Add a trigger to an existing workforce with the `triggers` input, never a new node in `workforce_graph`.** The platform assigns its `node_id`, which on publish usually becomes the trigger's id across the whole project (and a `custom_webhook`'s URL); read it from `added_node_ids.triggers`.
 - **`destination` is auto-filled.** Don't pass it; `{ type: "workforce", workforce_id }` is injected for you.
 - **`channels` requires IDs.** Slack/Teams channel names are not accepted. Resolve with `relevance_list_slack_channels` or the equivalent Teams lookup.
-- **OAuth triggers save before the account is connected** — see [OAuth-backed triggers: save first, connect later](#oauth-backed-triggers-save-first-connect-later) for the rule, the HubSpot-no-OAuth example, and the user-response template. Do NOT abort the workforce build because OAuth is missing; do NOT call `relevance_list_oauth_accounts` as a precondition.
+- **OAuth triggers.** A save-anyway vendor saves without an account, but nothing fires until the workforce is published, and the HubSpot, tool_trigger and ZoomInfo sections list what else they need; a connect-first vendor needs `relevance_list_oauth_accounts` first ([OAuth handling per vendor](#oauth-handling-per-vendor-save-anyway-vs-connect-first)). Don't abort a workforce build over a missing account: save what you can and say what is left.
 - **Polling triggers (`salesforce`, `recurring`) run on a backend schedule.** Don't expect them to fire instantly after creation; the first poll happens at the next scheduled tick.

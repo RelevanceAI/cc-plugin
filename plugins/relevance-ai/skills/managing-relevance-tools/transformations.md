@@ -32,11 +32,11 @@ Two layers of "output" exist and they map to different fields and different tool
 | **Step output (alias)** | `relevance_update_tool_step` (patch the step's `output`)               | Maps a step's transformation output to state variables that later steps reference (e.g. `output: { text: "{{answer}}" }`). Local to one step. |
 | **Tool output**         | `relevance_set_tool_output` (paired fields `output` + `output_schema`) | Configures what the tool returns at runtime (`output`) and how it's displayed (`output_schema`). See [outputs.md](outputs.md).                |
 
-Steps go through `relevance_add_tool_step` / `relevance_update_tool_step` / `relevance_remove_tool_step` / `relevance_move_tool_step`; outputs go through `relevance_set_tool_output`.
+Steps go through `relevance_update_tool_steps` (every edit to one tool in one call — see [creating.md](creating.md#editing-transformation-steps)) or, for a single edit, `relevance_add_tool_step` / `relevance_update_tool_step` / `relevance_remove_tool_step` / `relevance_move_tool_step`; outputs go through `relevance_set_tool_output`.
 
-`relevance_update_tool_step` patches the user-editable fields of a step: `name`, `display_name`, `params`, `output`, `output_schema`, `if`, `foreach`, `continue_on_error`, `use_fallback_on_skip`, `invent_instructions`, `default_output_values`. Of those, `params`, `output`, and `output_schema` merge one level deep — a patch like `{ params: { model: "X" } }` preserves sibling keys (`prompt`, `system_prompt`, `temperature`). Other fields replace wholesale.
+`relevance_update_tool_step` (and an `update` op in `relevance_update_tool_steps`) patches the user-editable fields of a step: `name`, `display_name`, `params`, `output`, `output_schema`, `if`, `foreach`, `continue_on_error`, `use_fallback_on_skip`, `invent_instructions`, `default_output_values`. Of those, `params`, `output`, and `output_schema` merge one level deep — a patch like `{ params: { model: "X" } }` preserves sibling keys (`prompt`, `system_prompt`, `temperature`). Other fields replace wholesale. `null` clears a field other than `name` and `params` — `{ output: null }` removes the step's `output` mapping — and inside `params` it removes that param (`{ params: { thinking: null } }`).
 
-Other step fields (`transformation`, `version`, `version_metadata`, `saved_params`, `parent_step`, `branch_id`) are not patchable through this tool. To change a step's transformation type or position, use `relevance_add_tool_step` / `relevance_remove_tool_step` / `relevance_move_tool_step`.
+Other step fields (`transformation`, `version`, `version_metadata`, `saved_params`, `parent_step`, `branch_id`) are not patchable through this tool. To change a step's transformation type or position, use `remove` + `add` or `move` ops in one `relevance_update_tool_steps` call (or the singular `relevance_add_tool_step` / `relevance_remove_tool_step` / `relevance_move_tool_step`, one after another).
 
 ## Picking a step type: the ladder
 
@@ -57,10 +57,9 @@ at the first rung that fits:
 
 ### Names don't follow the provider's API verbs
 
-Search by concept, not by the provider's method name. The Google Calendar _read_ step is called
-"Check Google calendar availability" (`check_google_calendar_v2`) — searching "list events" finds
-nothing. When a name-based search comes up empty, browse the tag instead:
-`relevance_list_transformations({ integration: "Google" })`.
+Search by concept, not by the provider's method name: "calendar" finds the Google Calendar steps,
+but the Calendar API's own verbs ("insert", "patch") appear in none of their names. When a
+name-based search comes up empty, browse the tag instead: `relevance_list_transformations({ integration: "Google" })`.
 
 ### Searching: single keyword first
 
@@ -108,8 +107,7 @@ A native, inline, side-effect-free step that renders rich markdown between real 
   transformation: "markdown",
   params: {
     markdown: "### What this tool does\nTakes **{{params.topic}}** and returns a summarised brief..."
-  },
-  output: {}
+  }
 }
 ```
 
@@ -121,7 +119,7 @@ A native, inline, side-effect-free step that renders rich markdown between real 
 
 ### prompt_completion
 
-Text generation with LLM.
+Text generation with LLM. Inside a tool an agent calls, judgement and the final write-up belong in the agent's system prompt, not here; use this step for the cases in [Tools vs Agents](SKILL.md#tools-vs-agents-what-goes-where).
 
 ```typescript
 {
@@ -139,6 +137,49 @@ Text generation with LLM.
 **Output:** `{{answer}}`
 
 **Models:** default to `relevance-cost-optimized` (or `relevance-performance-optimized` for the hardest steps) — these auto-select a current model and never go stale. To pin a specific one, call `relevance_list_llm_models` and pick an id that is not flagged deprecated or retired; never guess an id from memory. When the step has a shape worth optimising for — high-volume extraction, strict JSON output, long documents, image input — load the `relevance-llm-models/SKILL` guide first.
+
+### decide
+
+Answers questions about text or JSON with a **decision model**, not an LLM: several choice, score and yes/no questions in one call, in well under a second, with a probability for every option. It never writes text or explains its answer, so reach for it to label, route, score or gate, and for `prompt_completion` when the step must write or reason.
+
+```typescript
+{
+  name: "triage",
+  transformation: "decide",
+  params: {
+    state: "{{params.email}}", // text, or a whole-field variable holding JSON
+    model: "<id from relevance_list_decision_models>",
+    questions: [
+      {
+        name: "intent", // letters, digits and _; read as answers.intent
+        type: "choice",
+        instructions: "What is the customer asking about?",
+        options: [
+          { label: "billing", description: "Invoices, refunds and plans" },
+          { label: "access", description: "Logging in or passwords" },
+          { label: "other" },
+        ],
+      },
+      {
+        name: "urgency",
+        type: "score",
+        instructions: "How urgent is this?",
+        levels: [{ description: "Not urgent" }, { description: "Today" }, { description: "Now" }], // lowest first, 2 to 10
+      },
+      {
+        name: "is_customer",
+        type: "boolean",
+        instructions: "Is the writer an existing customer?",
+        true_description: "Mentions their account or plan", // optional, as is false_description
+      },
+    ],
+  },
+}
+```
+
+**Output:** `{{steps.triage.output.answers.<name>.value}}` for every question type — a choice's label, a score's expected level (0-based, so it can fall between levels), or `true`/`false` for a yes/no question (true from probability 0.5). Each answer also keeps the model's own fields: `choice` and `probabilities` per label; `score`, the most likely `level` and `probabilities` keyed by level index; `probability` of yes; and `confidence` where the model reports one. For a stricter decision than the most likely answer, branch on a probability in a later step.
+
+**Model:** take the id from `relevance_list_decision_models` — never write one from memory. The list holds only models this project may use; `has_user_key` says whether the project already has the provider key the model needs. If the list is empty, decision models are not available here: use `prompt_completion` instead.
 
 ### prompt_completion_vision
 
@@ -276,7 +317,7 @@ Make HTTP requests to **external** APIs. No auth injection — you must pass hea
 
 ### relevance_api_call
 
-Make HTTP requests to **Relevance platform** APIs. **Auth is auto-injected** from the caller's context — no API keys needed. This is critical for marketplace tools: cloners get their own auth automatically.
+Make HTTP requests to **Relevance platform** APIs. **Auth is auto-injected** with the run's own key — no API keys needed. This is critical for marketplace tools: cloners get their own auth automatically.
 
 > **⚠️ Never hand-roll Relevance auth.** To reach the platform API from a tool, always use this step — never an `api_call` step with a manual `Authorization` header, and never a code step carrying a Relevance key. There is no key to paste, and a hardcoded one breaks the moment the tool is cloned or published.
 
@@ -329,7 +370,7 @@ Make HTTP requests to **Relevance platform** APIs. **Auth is auto-injected** fro
 | Feature          | `relevance_api_call`                  | `api_call`                      |
 | ---------------- | ------------------------------------- | ------------------------------- |
 | Target           | Relevance platform APIs only          | Any external URL                |
-| Auth             | **Auto-injected** from caller context | Manual (via `headers` param)    |
+| Auth             | **Auto-injected** with the run's key  | Manual (via `headers` param)    |
 | URL param        | `path` (relative, e.g., `/auth/info`) | `url` (full URL)                |
 | Methods          | GET, POST, PUT only                   | GET, POST, PUT, DELETE, PATCH   |
 | Marketplace-safe | Yes — cloners use their own auth      | Depends on how auth is provided |
@@ -420,7 +461,7 @@ the account id travels over unchanged. Cloning rewrites both.
 
 ### js_code_transformation
 
-JavaScript code with native access to `steps` object.
+JavaScript code with native access to the `steps` and `params` objects.
 
 ```typescript
 {
@@ -438,7 +479,7 @@ return { filtered };
 
 **Output:** `{{transformed.field}}` - Same as Python, wrapped in `.transformed`
 
-**Key feature:** `steps.stepName.output` gives you native JavaScript objects - no parsing needed.
+**Key feature:** `steps.stepName.output` and `params.inputName` give you native JavaScript values - no parsing or template substitution needed.
 
 **Use JavaScript when:** Processing JSON from previous steps, simple filtering/mapping, no special library requirements.
 
@@ -503,6 +544,35 @@ url = '{{params.website_url}}'
 
 **Use template substitution** (`{{params.<name>}}`) for tool input params and when injecting values into string literals (e.g., SQL queries, URLs).
 
+### Python: Creating Files (charts, PDFs, CSVs)
+
+Upload a file you generate in Python from the same step with the built-in `insert_temp_file(file_bytes, ext)`, and return only the URL. Don't return base64 for an `upload_file_s3` step: that step stores its input as-is, so the file would contain base64 text instead of the image, and the run would still report success.
+
+Only `requests`, `python-dateutil`, `pytz` and `pandas` are preinstalled, so list any other library in the step's `packages` param.
+
+```typescript
+{
+  name: "render",
+  transformation: "python_code_transformation",
+  params: {
+    packages: ["matplotlib"],
+    code: `
+import io
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots()
+ax.plot([1, 2, 3], [4, 1, 3])
+buf = io.BytesIO()
+fig.savefig(buf, format="png")
+chart_url = insert_temp_file(buf.getvalue(), "png")["download_url"]
+return {"chart_url": chart_url}
+`
+  }
+}
+```
+
+`insert_temp_file` links stop working after a few days. That is fine for a run's output, but don't save one as a tool's icon: use a unicode emoji or a brand icon, or ask the user to upload one in the app. As an agent's `emoji`, `relevance_update_agent` either saves a permanent copy of it or refuses it; if it is refused, ask the user to upload the icon in the app.
+
 ## Loop Transformation
 
 ### loop
@@ -533,7 +603,7 @@ Iterate over arrays.
 }
 ```
 
-**Output:** `{{results}}` - Array of `{inner_step: {outputs}}`
+**Output:** `{{results}}` - Array with one entry per item: the last inner step's output (its own `output` mapping when it has one, otherwise its raw output). With `error_handling: "continue"` (the default), an item whose iteration failed adds its error to `{{errors}}` and nothing to `{{results}}`, so the two lists don't line up with the input by position
 
 **Critical:** Loop requires actual array, not JSON string. Parse with Python first if needed.
 
@@ -562,18 +632,18 @@ Supports: PDF, Word, CSV, Excel
 
 "Key Output" is the field name on the transformation's raw response (use it inside that step's own `output:` mapping). "Access Pattern" is how a **downstream** step reads that value — always via the full `{{steps.<step_name>.output.<field>}}` path.
 
-| Transformation               | Key Output            | Downstream Access Pattern                                                         |
-| ---------------------------- | --------------------- | --------------------------------------------------------------------------------- |
-| `markdown`                   | _(none)_              | Documentation step — see [documentation.md](documentation.md)                     |
-| `prompt_completion`          | `{{answer}}`          | `{{steps.<name>.output.answer}}`                                                  |
-| `python_code_transformation` | `return {"key": val}` | `{{steps.<name>.output.transformed.key}}`                                         |
-| `browserless_scrape`         | `{{output.page}}`     | `{{steps.<name>.output.output.page}}` (or via your output mapping)                |
-| `serper_google_search`       | `{{organic}}`         | `{{steps.<name>.output.organic}}` (or via your output mapping)                    |
-| `loop`                       | `{{results}}`         | `{{steps.<name>.output.results}}` — array of `{inner_step: {...}}`                |
-| `run_apify_dynamic`          | `{{items}}`           | `{{steps.<name>.output.items}}`                                                   |
-| `api_call`                   | `{{response_body}}`   | `{{steps.<name>.output.response_body}}`                                           |
-| `relevance_api_call`         | `{{response_body}}`   | `{{steps.<name>.output.response_body}}` (auth auto-injected)                      |
-| `run_chain`                  | `{{output}}`          | `{{steps.<name>.output.output.<field>}}` — alias it to avoid the doubled `output` |
+| Transformation               | Key Output            | Downstream Access Pattern                                                            |
+| ---------------------------- | --------------------- | ------------------------------------------------------------------------------------ |
+| `markdown`                   | _(none)_              | Documentation step — see [documentation.md](documentation.md)                        |
+| `prompt_completion`          | `{{answer}}`          | `{{steps.<name>.output.answer}}`                                                     |
+| `python_code_transformation` | `return {"key": val}` | `{{steps.<name>.output.transformed.key}}`                                            |
+| `browserless_scrape`         | `{{output.page}}`     | `{{steps.<name>.output.output.page}}` (or via your output mapping)                   |
+| `serper_google_search`       | `{{organic}}`         | `{{steps.<name>.output.organic}}` (or via your output mapping)                       |
+| `loop`                       | `{{results}}`         | `{{steps.<name>.output.results}}` — one entry per item: the last inner step's output |
+| `run_apify_dynamic`          | `{{items}}`           | `{{steps.<name>.output.items}}`                                                      |
+| `api_call`                   | `{{response_body}}`   | `{{steps.<name>.output.response_body}}`                                              |
+| `relevance_api_call`         | `{{response_body}}`   | `{{steps.<name>.output.response_body}}` (auth auto-injected)                         |
+| `run_chain`                  | `{{output}}`          | `{{steps.<name>.output.output.<field>}}` — alias it to avoid the doubled `output`    |
 
 ## Email Transformations
 
@@ -767,7 +837,7 @@ output:
 
 **Problem:** Single-quoted template literals break when values contain apostrophes.
 
-`{{param}}` is resolved server-side before the JS code runs (string substitution, not JS evaluation), so backticks are safe for this purpose. However, they are not a security boundary — do not use them for untrusted input that could contain backticks or `${...}` syntax.
+`{{param}}` is resolved server-side before the JS code runs (string substitution, not JS evaluation), so backticks are safe for this purpose. However, they are not a security boundary — for input that could contain backticks or `${...}` syntax, read it natively as `params.<name>` instead.
 
 ```javascript
 // WRONG - breaks if param contains an apostrophe (e.g., "O'Brien")
@@ -776,8 +846,9 @@ const name = '{{params.name}}';
 // BETTER - handles apostrophes in values
 const name = `{{params.name}}`;
 
-// BEST for complex data - use native steps access (no template injection needed)
-const name = steps.previous_step.output.name;
+// BEST - read tool inputs and step outputs natively (no template injection needed)
+const name = params.name;
+const company = steps.previous_step.output.company;
 ```
 
 ### 10. JS code steps: handle array params that may serialize as strings

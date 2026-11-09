@@ -71,7 +71,7 @@ Get one row by document_id                     relevance_get_knowledge_row
 Add a few rows the user typed (never a file's) relevance_add_knowledge_rows
 Update specific fields on existing rows        relevance_update_knowledge_rows
 Delete rows by document_id                     relevance_delete_knowledge_rows
-Delete columns and their values in every row   relevance_delete_knowledge_columns
+Delete columns and their values in every row   relevance_delete_knowledge_columns, or the Knowledge tab in the app
 
 Export a base to CSV / XLSX                    relevance_export_knowledge
 Turn a file into a base, or add a file to one  relevance_import_knowledge_file

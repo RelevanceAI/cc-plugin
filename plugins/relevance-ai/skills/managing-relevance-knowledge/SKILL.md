@@ -71,6 +71,7 @@ Get one row by document_id                     relevance_get_knowledge_row
 Add a few rows the user typed (never a file's) relevance_add_knowledge_rows
 Update specific fields on existing rows        relevance_update_knowledge_rows
 Delete rows by document_id                     relevance_delete_knowledge_rows
+Delete columns and their values in every row   relevance_delete_knowledge_columns, or the Knowledge tab in the app
 
 Export a base to CSV / XLSX                    relevance_export_knowledge
 Turn a file into a base, or add a file to one  relevance_import_knowledge_file
@@ -97,20 +98,21 @@ Attach a base to an agent                      relevance_update_agent (patch.kno
 
 ## Tool reference
 
-| Tool                              | Required                              | Read-only?  |
-| --------------------------------- | ------------------------------------- | ----------- |
-| `relevance_list_knowledge_sets`   | —                                     | ✅          |
-| `relevance_get_knowledge_set`     | `knowledge_set`                       | ✅          |
-| `relevance_create_knowledge_set`  | `knowledge_set`                       | ❌ approval |
-| `relevance_update_knowledge_set`  | `knowledge_set`, `updates`            | ❌ approval |
-| `relevance_delete_knowledge_set`  | `knowledge_set`                       | ❌ approval |
-| `relevance_list_knowledge_rows`   | `knowledge_set`                       | ✅          |
-| `relevance_get_knowledge_row`     | `knowledge_set`, `document_id`        | ✅          |
-| `relevance_add_knowledge_rows`    | `knowledge_set`, `rows`               | ❌ approval |
-| `relevance_update_knowledge_rows` | `knowledge_set`, `updates`            | ❌ approval |
-| `relevance_delete_knowledge_rows` | `knowledge_set`, `document_ids`       | ❌ approval |
-| `relevance_export_knowledge`      | `knowledge_set`                       | ❌ approval |
-| `relevance_import_knowledge_file` | `knowledge_set`, `path` or `file_url` | ❌ approval |
+| Tool                                 | Required                              | Read-only?  |
+| ------------------------------------ | ------------------------------------- | ----------- |
+| `relevance_list_knowledge_sets`      | —                                     | ✅          |
+| `relevance_get_knowledge_set`        | `knowledge_set`                       | ✅          |
+| `relevance_create_knowledge_set`     | `knowledge_set`                       | ❌ approval |
+| `relevance_update_knowledge_set`     | `knowledge_set`, `updates`            | ❌ approval |
+| `relevance_delete_knowledge_set`     | `knowledge_set`                       | ❌ approval |
+| `relevance_list_knowledge_rows`      | `knowledge_set`                       | ✅          |
+| `relevance_get_knowledge_row`        | `knowledge_set`, `document_id`        | ✅          |
+| `relevance_add_knowledge_rows`       | `knowledge_set`, `rows`               | ❌ approval |
+| `relevance_update_knowledge_rows`    | `knowledge_set`, `updates`            | ❌ approval |
+| `relevance_delete_knowledge_rows`    | `knowledge_set`, `document_ids`       | ❌ approval |
+| `relevance_delete_knowledge_columns` | `knowledge_set`, `fields`             | ❌ approval |
+| `relevance_export_knowledge`         | `knowledge_set`                       | ❌ approval |
+| `relevance_import_knowledge_file`    | `knowledge_set`, `path` or `file_url` | ❌ approval |
 
 ## When create returns "already exists"
 
@@ -119,6 +121,9 @@ returns `isError: true` with `row_count` and `ingestion_status` on the
 existing base. Inspect with `relevance_list_knowledge_rows` before
 deciding to reuse, wipe (`relevance_delete_knowledge_set` then
 re-create), or pick a new id. Never wipe without explicit user approval.
+A deleted base's id stays reserved: `relevance_create_knowledge_set`
+refuses it, and the base cannot be deleted again, so pick a new id. Other
+writes to that id land on the hidden deleted base, where nobody sees them.
 
 ## End-to-end: CRM-style agent
 

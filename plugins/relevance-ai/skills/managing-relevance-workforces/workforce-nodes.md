@@ -172,7 +172,19 @@ Each outgoing edge from a condition node MUST carry a `condition` payload:
 | `prompt-based` | The decision needs LLM reasoning — semantic intent, judgement, soft criteria                             | `{ type: "prompt-based", config: { prompt: "..." } }`         |
 | `rule-based`   | The decision is a structural filter over input fields — value equality, comparisons, AND/OR combinations | `{ type: "rule-based", config: { filters: [<FilterItem>] } }` |
 
-Prompt-based conditions optionally use `llm_condition_model` on the node (e.g. `llm_condition_model: 'relevance-cost-optimized'`) to override the default model — never hardcode a versioned model id, call `relevance_list_llm_models` if you need a specific one. Rule-based filters use the same shape as `FilterItem` filters elsewhere in the platform — refer to the relevant tool docs when constructing them.
+Prompt-based conditions optionally use `llm_condition_model` on the node (e.g. `llm_condition_model: 'relevance-cost-optimized'`) to override the default model — never hardcode a versioned model id, call `relevance_list_llm_models` if you need a specific one.
+
+A rule-based edge passes when every filter passes. A filter is `{ filter_type, condition, target, source }`:
+
+- `target`: the value to check, as a variable: `{{node_context.nodes.<node_id>.output.response}}` for an agent's reply, `{{node_context.nodes.<node_id>.output.<field>}}` for a tool's output. The node must be saved first, so add the filter with `relevance_update_workforce`.
+- `source`: the string to compare with.
+- `exact_match`, `contains`, `starts_with` and `ends_with` take `==` or `!=`. `numeric` and `date` take `>`, `<`, `>=` or `<=`.
+- `exact_match` needs `value_type`: `string`, `number`, `boolean` or `date`. `contains` needs `value_type`: `string` or `array`.
+- `{ filter_type: 'and' | 'or', value: [<filters>] }` groups filters.
+
+```typescript
+{ filter_type: 'contains', value_type: 'string', condition: '==', target: '{{node_context.nodes.<node_id>.output.response}}', source: 'urgent' }
+```
 
 #### Judging prompt-based conditions with a decision model
 

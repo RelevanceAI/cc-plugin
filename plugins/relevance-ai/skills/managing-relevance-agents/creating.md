@@ -16,10 +16,12 @@ interface AgentConfig {
   description: string; // Brief description
   system_prompt: string; // Core instructions
   model?: string; // LLM model
-  emoji?: string; // Icon
+  emoji?: string; // Icon: a unicode emoji or an image link. A temporary file link is saved as a permanent copy or refused
   temperature?: number; // 0-1 creativity
   actions?: AgentAction[]; // Attached tools
-  params_schema?: object; // Input variables
+  params_schema?: object; // Agent variables: what each one is — see variables.md
+  params?: object; // Agent variables: each one's value
+  knowledge?: AgentKnowledgeItem[]; // Attached bases — see managing-relevance-knowledge
   autonomy_limit?: number; // Max tool calls (default: 20)
   autonomy_limit_behaviour?: string; // What happens at limit
   model_options?: {
@@ -58,9 +60,12 @@ Agents have built-in capabilities enabled through settings — **not** by adding
 | `tags: ["support", "sales"]`                      | Conversation tagging                   |
 | `is_scheduled_triggers_enabled: true`             | Agent can schedule future actions      |
 | `escalations: { email: { emails: [...] } }`       | Escalate to human managers             |
-| `enable_python_executor: true`                    | Agent can write and run Python         |
 
 **See [phantom-tools.md](phantom-tools.md) for the full reference** — how to enable each one, what they do, and critical gotchas about never putting them in `actions`.
+
+No setting lets an agent run Python. Build a tool with a [`python_code_transformation`](../managing-relevance-tools/transformations.md#python_code_transformation) step and attach it.
+
+> **Evaluator agents** (`runtime_engine: "evaluator"` on `relevance_create_agent`) exist only to grade conversations as a `custom_agent` eval check; they refuse triggers, sub-agent calls and workforce nodes. Load `relevance-evals/evaluator-agents` before creating one.
 
 ## Agent Configuration Options
 
@@ -136,6 +141,8 @@ The `relevance_create_agent` response includes the new `agent_id` directly. If y
 
 ### Step 3: Add Tools and Configure (saves as draft)
 
+**First, check what each tool is for.** A tool that fetches the records a scheduled agent should work through one at a time (new leads, open tickets, new rows) is not attached: it becomes the agent's [tool trigger](triggers.md#tool-triggers-one-task-per-item), so each record gets its own task. A list the user already has (a CSV, a knowledge table) needs no fetching tool at all: write the prompt for one row and start it with the bulk-run tool, or Run in bulk in the app. See [A Tool That Lists the Work Starts the Agent](SKILL.md#a-tool-that-lists-the-work-starts-the-agent) and [Work Over Many Items](many-items.md).
+
 **Before attaching tools, pick the right one — prefer native over third-party.** Follow this order:
 
 1. **Reuse first — unless the user explicitly asked you to build from scratch.** `relevance_list_tools({ query: "..." })` — if the project already has a tool that does the job, attach it. Skip this step only when the user has asked for a fresh build.
@@ -151,6 +158,8 @@ relevance_attach_tools_to_agent({
   action_behaviour: 'never-ask',
 });
 ```
+
+If the agent already has evals, the new tool is not covered by them and will run for real on the next eval — extend the test set's simulation config before publishing, using the `action_id_map` this call returns. See the `relevance-evals` skill.
 
 For other field changes (system_prompt, model, temperature, memory, etc.), use `relevance_update_agent` — partial-merge into the draft:
 
@@ -174,11 +183,16 @@ If any attached tools require OAuth (check `params_schema` for `metadata.content
 ### Step 5: Test the Draft
 
 ```typescript
+// Only reads and replies: a real run, so the user sees real results in their tasks.
 relevance_trigger_agent({
   agent_id: agent.agent_id,
   message: 'Research the latest AI developments',
+  simulate: false,
 });
 // Response includes triggered_version: "draft" so you know which version ran.
+// Has a tool that sends or changes something (if you can't tell, count it as one):
+// simulate first with the reads live, then run it for real once the user agrees to
+// that run and says where it may write. See running.md#trying-an-agent-whose-tools-write.
 ```
 
 ### Step 6: Ask the User, Then Publish
@@ -223,19 +237,19 @@ Before creating a new agent, look at how similar working agents are configured. 
 
 Never hardcode a versioned model id — models get retired, and a retired id silently degrades the agent. Call `relevance_list_llm_models` and pick one that is not flagged deprecated or retired.
 
-With no specific reason to prefer a particular model, use `relevance-cost-optimized` (or `relevance-performance-optimized` for the hardest tasks). These always resolve to a current model, so they never go stale — and they are what a new agent gets by default.
+With no specific reason to prefer a particular model, use `relevance-cost-optimized` (or `relevance-performance-optimized` for the hardest tasks). These always resolve to a current model, so they never go stale. A new agent runs on `relevance-cost-optimized` until its `model` is set, so leaving it unset is choosing it.
 
 When the agent does have a shape — a long tool loop, a latency-sensitive chat agent, image or PDF input, high-volume extraction — load the `relevance-llm-models/SKILL` guide instead of defaulting. It maps the shape to a current model and covers the reasoning-effort and parameter settings that have to be set alongside it.
 
 ## Common Patterns
 
 - **Search and Summarize:** attach a search tool and a scraper. System prompt: search → read pages → synthesize.
-- **Data Enrichment:** attach search + contact-finder + a profile scraper (e.g. LinkedIn). System prompt: search for the entity → extract details → find contact info.
+- **Data Enrichment:** attach search + contact-finder + a profile scraper (e.g. LinkedIn). System prompt: search for the one entity its task names → extract details → find contact info. To enrich a whole list, start it once per row with the bulk-run tool, or Run in bulk in the app; fields with nothing to judge can be a tool column on the table instead ([many-items.md](many-items.md)).
 - **Event-Driven:** attach the relevant data-fetching tools, leave triggers to `relevance_create_trigger`. System prompt explains how to react when the trigger fires.
 
 ## Testing
 
-After creating an agent, test it with `relevance_trigger_agent` to verify it works as expected. For production agents, see the `relevance-evals` skill for setting up formal evaluation suites.
+After creating an agent that only reads and replies, test it with `relevance_trigger_agent`. Test one with a tool that writes in an eval with a stand-in for that tool, as the tools skill's [Testing Workflow](../managing-relevance-tools/running.md#testing-workflow) says. For production agents, see the `relevance-evals` skill for setting up formal evaluation suites.
 
 ---
 
@@ -246,7 +260,7 @@ After creating an agent, test it with `relevance_trigger_agent` to verify it wor
 - [ ] All necessary tools attached
 - [ ] All actions have project and region fields
 - [ ] Correct action_behaviour for each tool
-- [ ] Model appropriate for task complexity
-- [ ] Each tool individually validated with `relevance_trigger_tool` (then `relevance_poll_tool_result`)
+- [ ] Model set for the agent's shape (a tool loop is a shape), not left on the default by accident
+- [ ] Each tool that only reads validated with `relevance_trigger_tool` (then `relevance_poll_tool_result`); each tool that writes checked in an eval with a stand-in for it
 - [ ] Agent tested with `relevance_trigger_agent`
 - [ ] Triggers configured (if needed)

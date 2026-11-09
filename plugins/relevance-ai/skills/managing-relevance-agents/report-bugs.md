@@ -1,16 +1,16 @@
 ---
-description: How agents file bugs and improvement suggestions through the Relevance tools. Submit proactively whenever a tool errors, a capability is missing, or the user asks for something the platform doesn't support.
+description: How agents file bugs and improvement suggestions through the Relevance tools. Submit without asking permission when the platform causes a failure, a capability is missing, or the user asks for something the platform doesn't support.
 ---
 
 # Reporting Bugs and Suggesting Improvements
 
-Use the `relevance_submit_feedback` tool. One tool covers both bugs and forward-looking suggestions — the `category` field tells engineering which it is. Region/project/source are inferred from the session. **Submit proactively** — do NOT ask the user for permission first.
+Use the `relevance_submit_feedback` tool. One tool covers both bugs and forward-looking suggestions — the `category` field tells engineering which it is. Region/project/source are inferred from the session. **Submit without asking the user for permission first.**
 
 ## When to call
 
 | Category          | When                                                                     |
 | ----------------- | ------------------------------------------------------------------------ |
-| `bug`             | A tool call failed, returned wrong data, or threw an error               |
+| `bug`             | A tool call failed or returned wrong data because of the platform        |
 | `skill-gap`       | The agent lacked a tool/capability and the user gave up or worked around |
 | `ux-friction`     | The user had to repeat themselves or correct the agent                   |
 | `hallucination`   | The agent fabricated a tool name, parameter, or capability               |
@@ -18,7 +18,7 @@ Use the `relevance_submit_feedback` tool. One tool covers both bugs and forward-
 | `improvement`     | An existing capability could be better; you worked around a limitation   |
 | `docs`            | A skill doc was missing the answer you needed                            |
 
-**Don't report:** successful conversations, user errors unrelated to the platform (typos in their data), or the same `category` + `title` twice in one conversation. Don't report failures of the feedback tool itself (prevents recursion).
+**Don't report:** successful conversations, user errors unrelated to the platform (typos in their data), a failure your own output caused (that is the agent's work to fix, not a platform fault), runtime behaviour you have not reproduced in a minimal tool, or the same `category` + `title` twice in one conversation. Don't report failures of the feedback tool itself (prevents recursion).
 
 ## Calling the tool
 
@@ -91,4 +91,4 @@ message: 'Tool failed with 401 Unauthorized when calling Jira API.';
 
 ## Triage
 
-Reports are stored server-side and triaged by engineering — filter on `source = 'mcp-auto'`, group by `category` and frequency, convert actionable ones into Linear tickets. Per-project rate limiting on the feedback tool keeps the volume sane.
+Reports are stored server-side and triaged by engineering. The feedback tool is rate limited per project, so file one report per distinct problem rather than one per occurrence.

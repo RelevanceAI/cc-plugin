@@ -55,6 +55,10 @@ Nodes are the entities in a workforce. Each has a `node_id`, `type`, and `config
 }
 ```
 
+`entity_information` is a copy of the agent's or tool's name, taken when the node is first saved. Renaming the agent or tool doesn't update it.
+
+An agent node can also carry `config.params_override: { <variable>: <value> }`, which replaces those agent variables' saved values whenever this workforce runs the agent (see the agents skill's `variables.md`). Read it along with the agent's own variables when explaining or debugging that node.
+
 ### Trigger Types
 
 | Type     | Description                                                  |
@@ -179,7 +183,8 @@ When using `tool-call` edges, you can configure how the source agent invokes the
           linkedin_url: { type: "string", description: "LinkedIn profile URL" }
         },
         required: ["linkedin_url"]
-      }
+      },
+      // Optional: agent: { message_template: "Research {{linkedin_url}}" }
     }
   }
 }
@@ -190,7 +195,15 @@ When using `tool-call` edges, you can configure how the source agent invokes the
 | `action_behaviour`       | `"never-ask"` = auto-approve, `"always-ask"` = require human approval |
 | `wait_for_completion`    | Whether source waits for target to finish before continuing           |
 | `prompt_for_when_to_use` | Instructions injected into source agent's system prompt               |
-| `params_schema`          | JSON Schema for parameters the source can pass to target              |
+| `params_schema`          | Params the source fills in when it calls the target                   |
+| `agent.message_template` | Optional message to the target; every `{{param}}` must be declared    |
+
+**What the target receives.** The declared params reach the target agent only through its message:
+
+- With `agent.message_template`: the template, with each `{{param}}` filled in.
+- Without one: each declared param as a `name: value` line. A param named `message` is the exception: it is sent as-is and any other params are dropped, so declare `message` alone or not at all.
+
+Name params using only letters, digits and `_`, starting with a letter or `_`, at most 64 characters, and not `steps`, `params` or built-in names such as `constructor`. When creating a workforce, give the edge `message_template` directly. Without a `params_schema`, each `{{ param }}` in the template is declared as a string; with one, it must declare exactly the params the template uses. When updating an edge with `agent.message_template`, set its `params_schema` to the params the template uses.
 
 ## Execution Limit
 

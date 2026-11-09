@@ -29,7 +29,7 @@ Skill for creating, configuring, running, and debugging Relevance AI tools (stud
 
 ## Resource URLs
 
-The following tools return a `url` field in their response pointing directly to the correct page in the Relevance AI app. **Always share this URL with the user immediately after the operation completes.**
+The following tools return a `url` field in their response pointing directly to the correct page in the Relevance AI app. **Share this URL in the reply that reports the result.**
 
 | Tool                     | URL points to         |
 | ------------------------ | --------------------- |
@@ -96,7 +96,7 @@ relevance_create_tool({
 });
 ```
 
-## Tools vs Agents: When NOT to Create a Tool
+## Tools vs Agents: What Goes Where
 
 Tools are for **external integrations and side effects** — actions that interact with systems outside the agent (APIs, databases, email services, CRM, web scraping, file storage). They are NOT for wrapping core reasoning tasks.
 
@@ -104,7 +104,7 @@ Tools are for **external integrations and side effects** — actions that intera
 
 - Calling an external API (Google Search, SendGrid, Slack, CRM)
 - Reading/writing to a database or knowledge table
-- Performing a deterministic transformation (parsing, formatting, calculations)
+- Performing a deterministic transformation (parsing, reshaping, date maths, calculations)
 - Interacting with third-party services (OAuth integrations)
 
 **Do NOT create a tool when the task is pure reasoning/intelligence:**
@@ -114,12 +114,21 @@ Tools are for **external integrations and side effects** — actions that intera
 - Analyzing or summarizing information
 - Making decisions or classifications
 
-> **If a tool's only transformation step is `prompt_completion`, it should almost certainly be an agent instead.**
-> That reasoning belongs in the agent's system prompt, or in a dedicated sub-agent within a workforce.
->
-> **Exception:** Tools that combine API calls with LLM processing steps are fine — e.g., a tool that scrapes a webpage, then uses `prompt_completion` to extract structured data. The key is that the tool does something an agent can't (call an API), and the LLM step processes the result. A tool that is _only_ an LLM call adds no value over an agent.
->
-> See [Workforce Documentation](../managing-relevance-workforces/SKILL.md) for building multi-agent systems where each agent handles a distinct reasoning task.
+### Default: the tool returns data, the agent's system prompt judges
+
+A tool fetches, writes and computes, and returns the records plus how many it scanned and kept. The agent that calls it carries the judgement in its system prompt: which items matter when no field decides it, the summary, the wording and the shape of the answer.
+
+- **Filter exact criteria in the fetch first.** When a field answers the question (sender, label, date, status, a marker address), filter on it in the fetch step's own query or parameters. Add a code step only for what those can't express (grouping, comparing against the current time, de-duplicating).
+- **Look before you filter.** Before writing a filter over data you haven't seen, run the read step once on a small page with `relevance_run_transformation`: a guessed keyword that matches nothing returns an empty list that reads as "nothing found". Only probe a step that reads, never one that writes. A step writes when it sends or posts anything, or adds, changes or deletes data anywhere, a knowledge table included, since it may hold live data. Judge a step by what it does, not its name: a find-or-create step writes, and so can a search sent as a POST. A step you can't classify counts as one that writes.
+- **Return records and counts, not a write-up.** Return the fields the agent needs rather than whole bodies it won't read, plus the counts, so an empty result can be told apart from a broken fetch. Page the fetch and trim long bodies: everything returned is billed at the agent's model rate and re-sent on every turn.
+- **Records the agent handles one by one start it instead.** When each record should get its own task (each new lead qualified, each ticket answered), the fetching tool is not attached to the agent: it becomes a [tool trigger](../managing-relevance-agents/triggers.md#tool-triggers-one-task-per-item) that starts one task per record, and it returns an empty list, not an error, when nothing is new. A list the user already has (a CSV, a knowledge table) needs no fetching tool: Run in bulk starts one task per row ([Work Over Many Items](../managing-relevance-agents/many-items.md)). Attach it only when one run needs the whole list at once: a digest, a count, a comparison.
+- **The smell:** an agent prompt that says "return the tool's output unchanged". The judgement is in the wrong place; move the tool's LLM step into the agent's system prompt.
+
+Why: the owner can read and edit an agent's system prompt, while a prompt inside a tool step is buried in the tool editor. Evals simulate the whole tool, so judgement inside it is never tested. And each LLM step is a second model call on every run.
+
+**Exceptions.** Put an LLM step in the tool only when no agent reads its output (a tool column run on every row of a knowledge table with Run tool on all rows, or a tool triggered directly or published for others to call; an agent that runs on a schedule still reads it), when extracting fields from each of many long documents the agent couldn't read in one go (scraped pages, PDFs), when a later step in the same tool needs the result (prefer `decide` for a label), or when several agents call the tool and must judge the same way, so the rule lives in one place. Filtering or summarising a list the agent can read is never one of these.
+
+Reasoning big enough to be its own role belongs in a dedicated agent within a workforce — see [Workforce Documentation](../managing-relevance-workforces/SKILL.md).
 
 ### Example: Sales Lead Pipeline
 
@@ -150,8 +159,9 @@ The agents handle reasoning; tools handle external actions. In evals, you simula
 | `relevance_get_tool`                        | Get full tool config (accepts `version` for draft inspection)                                                                    |
 | `relevance_create_tool`                     | Create a NEW tool — saves to DRAFT only; call `relevance_publish_tool` to make it live                                           |
 | `relevance_update_tool`                     | Update an existing tool — saves to DRAFT only                                                                                    |
+| `relevance_update_tool_steps`               | Every step edit to one tool in one call (`add`/`update`/`remove`/`move` ops, applied in order, one save) — saves to DRAFT        |
 | `relevance_add_tool_step`                   | Add a transformation step (0-based `position`, defaults to append) — saves to DRAFT                                              |
-| `relevance_update_tool_step`                | Shallow-merge a patch into the step at 0-based `step_index` — saves to DRAFT                                                     |
+| `relevance_update_tool_step`                | Merge a patch into the step at 0-based `step_index` (`null` clears a field) — saves to DRAFT                                     |
 | `relevance_remove_tool_step`                | Remove the step at 0-based `step_index` — saves to DRAFT                                                                         |
 | `relevance_move_tool_step`                  | Reorder a step from `from_index` to `to_index` (0-based) — saves to DRAFT                                                        |
 | `relevance_set_tool_output`                 | Edit the tool's runtime output map (`transformations.output`) and `output_schema` — saves to DRAFT. See [outputs.md](outputs.md) |
@@ -163,8 +173,8 @@ The agents handle reasoning; tools handle external actions. In evals, you simula
 | `relevance_list_tool_versions`              | List version history for a tool                                                                                                  |
 | `relevance_get_tool_version`                | Get a specific version's config                                                                                                  |
 | `relevance_restore_tool_version`            | Restore a tool to a previous version (creates a draft)                                                                           |
-| `relevance_search_public_tools`             | Search community/public tools                                                                                                    |
-| `relevance_clone_public_tool`               | Clone a public tool into your project                                                                                            |
+| `relevance_search_public_tools`             | Search public tool steps                                                                                                         |
+| `relevance_clone_public_tool`               | Install a public tool step into your project                                                                                     |
 
 ## Finding the Right Tool: Search Order
 
@@ -174,17 +184,21 @@ Follow it **unless the user has explicitly asked you to build from scratch — i
 straight to creating a new one**:
 
 1. **Search project tools** — `relevance_list_tools({ query: "..." })` — Already built and configured
-2. **Search public/community tools** — `relevance_search_public_tools({ query: "..." })` — Pre-built, sorted by popularity
-3. **Search marketplace listings** — `relevance_search_marketplace_listings({ query: "...", entityType: "tool" })` — Complete solutions (agent + tools bundled)
-4. **Search transformations** — `relevance_list_transformations({ search: "..." })` — 8000+ integrations, use `relevance_create_tool_from_transformation` to wrap
+2. **Search public tool steps** — `relevance_search_public_tools({ query: "..." })` — pre-built, sorted by popularity. Some harnesses narrow this to Relevance's own curated steps
+3. **Search transformations** — `relevance_list_transformations({ search: "..." })` — 8000+ integrations, use `relevance_create_tool_from_transformation` to wrap
 
 > ⚠️ Note the parameter differs: tools take `query`, transformations take **`search`**.
 
 **Tip:** Issue several **single-keyword** queries per tier ("scrape", then "extract", then "crawl") rather than one long phrase. `relevance_list_transformations` requires every word of `search` to match, so a phrase like "get events from google calendar" returns nothing while "calendar" returns the set. When a search comes up empty, browse by tag instead — `{ integration: "Google" }` or `{ use_case: "Calendar" }`.
 
-**These are four separate catalogues.** A step the user can see in the builder UI may be a public
-tool step (rung 2), not a transformation (rung 4) — so an empty transformation search does not mean
-the capability is missing. See [transformations.md](transformations.md#picking-a-step-type-the-ladder).
+**These are separate catalogues, and the builder shows more than you can search.** A step the user
+can see in the picker may be a public tool step (rung 2), not a transformation (rung 3) — so an
+empty transformation search does not mean the capability is missing. There is also a marketplace of
+complete solutions (agent + tools bundled); some harnesses can search and install from it, others
+cannot — **your own tool list is the authority on which catalogues you can reach.** Where you can't
+reach one the user names, say so plainly, offer to build the equivalent from Relevance's own steps,
+and otherwise ask them to add it in the builder themselves — **never tell the user a step doesn't
+exist because your search missed it.** See [transformations.md](transformations.md#picking-a-step-type-the-ladder).
 
 ### Prefer native transformations
 
@@ -307,13 +321,18 @@ items: '{{steps.llm_step.output.answer}}'; // WRONG - string
 
 ```typescript
 relevance_create_tool({
-  title: 'Search and Summarize',
-  description: 'Search web and summarize results',
-  prompt_description: 'Use this to search for information',
+  title: 'Search the Web',
+  description: 'Search the web and return the top results',
+  prompt_description:
+    'Use this to find current information on the web. Returns the title, link and snippet of the top results.',
   params_schema: {
     type: 'object',
     properties: {
-      query: { type: 'string', title: 'Search Query' },
+      query: {
+        type: 'string',
+        title: 'Search Query',
+        description: 'What to search for',
+      },
     },
     required: ['query'],
   },
@@ -326,45 +345,57 @@ relevance_create_tool({
         output: { results: '{{organic}}' },
       },
       {
-        name: 'summarize',
-        transformation: 'prompt_completion',
+        name: 'shortlist',
+        transformation: 'js_code_transformation',
         params: {
-          prompt: 'Summarize: {{steps.search.output.results}}',
+          code: `
+const all = steps.search.output.results || [];
+const results = all.slice(0, 5).map((r) => ({ title: r.title, link: r.link, snippet: r.snippet }));
+return { results, scanned: all.length, kept: results.length };
+`,
         },
-        output: { summary: '{{answer}}' },
       },
     ],
-    output: { summary: '{{steps.summarize.output.summary}}' },
+    output: {
+      results: '{{steps.shortlist.output.transformed.results}}',
+      scanned: '{{steps.shortlist.output.transformed.scanned}}',
+      kept: '{{steps.shortlist.output.transformed.kept}}',
+    },
   },
   output_schema: {
-    metadata: { field_order: ['summary'] },
-    properties: { summary: { metadata: { render_mode: 'markdown' } } },
+    metadata: { field_order: ['results', 'scanned', 'kept'] },
+    properties: {
+      results: { metadata: { render_mode: 'table' } },
+      scanned: { metadata: { render_mode: 'raw' } },
+      kept: { metadata: { render_mode: 'raw' } },
+    },
   },
 });
+// No summarise step: the agent that calls this tool writes the answer from its system prompt.
 ```
 
-Need to edit later? Metadata via `relevance_update_tool`. Steps via `relevance_add_tool_step` / `relevance_update_tool_step` / `relevance_remove_tool_step` / `relevance_move_tool_step`. Outputs via `relevance_set_tool_output`.
+Need to edit later? Metadata via `relevance_update_tool`. Steps via `relevance_update_tool_steps` (every step edit to one tool in one call — several step-edit calls to the same tool at once lose all but the last save), or `relevance_add_tool_step` / `relevance_update_tool_step` / `relevance_remove_tool_step` / `relevance_move_tool_step` for a single edit. Outputs via `relevance_set_tool_output`.
 
 ## Tool Outputs
 
 Configure outputs via the paired fields `output` (the runtime map — what the tool returns) and `output_schema` (the display contract — how the canvas Outputs panel and downstream consumers see the result). They mirror what you see on `relevance_get_tool`.
 
-Set both on `relevance_create_tool` for one-shot creation, or edit later via `relevance_set_tool_output`. Read [outputs.md](outputs.md) before the first call, and whenever editing a tool that drives a workforce `tool_trigger`.
+Set both on `relevance_create_tool` for one-shot creation, or edit later via `relevance_set_tool_output`. Read [outputs.md](outputs.md) before the first call, and whenever editing a tool that drives a `tool_trigger` on an agent or a workforce.
 
 **When to set them:** whenever the tool is consumed by another entity (an agent, a `tool_trigger`, a marketplace listing). In practice: always, unless the tool is a one-off you'll only run by hand. The runtime keys in `output` MUST match the keys declared in `output_schema.properties`.
 
 `render_mode` is one of `auto | hide | html | image | json | markdown | raw | table` (default `auto`).
 
-**Common gotcha — `tool_trigger`:** a workforce trigger of `type: 'tool_trigger'` references one of the tool's runtime output keys by literal lookup (`tool_config.output_field`). If you remove or rename a key the trigger depends on, the trigger fails silently, without surfacing the failure to the user. See [outputs.md](outputs.md) and [`managing-relevance-workforces/workforce-triggers.md`](../managing-relevance-workforces/workforce-triggers.md).
+**Common gotcha — `tool_trigger`:** a trigger of `type: 'tool_trigger'`, on an agent or a workforce, references one of the tool's runtime output keys by literal lookup (`tool_config.output_field`). If you remove or rename a key the trigger depends on, the trigger fails on every run, which is easy to miss: only the trigger's status and trigger alarms can show it, and only where trigger run recording is on. See [outputs.md](outputs.md) and [`managing-relevance-workforces/workforce-triggers.md`](../managing-relevance-workforces/workforce-triggers.md).
 
 ## Reference Files
 
 - [creating.md](creating.md) - Full creation workflow
-- [outputs.md](outputs.md) - `set_tool_output` reference: Manual vs passthrough modes, `tool_trigger` compatibility (REQUIRED reading before the first `set_tool_output` call, and when editing a tool that drives a workforce trigger)
+- [outputs.md](outputs.md) - `set_tool_output` reference: Manual vs passthrough modes, `tool_trigger` compatibility (REQUIRED reading before the first `set_tool_output` call, and when editing a tool that drives a tool trigger)
 - [documentation.md](documentation.md) - Documenting tools with markdown notes (REQUIRED reading when building any tool with ≥3 steps or non-obvious logic)
 - [transformations-catalog.md](transformations-catalog.md) - Quick lookup of popular transformations by category
 - [transformations.md](transformations.md) - Implementation details, output patterns, and gotchas
-- [patterns.md](patterns.md) - Common patterns (search+analyze, loops)
+- [patterns.md](patterns.md) - Common patterns (search, loops, per-item extraction)
 - [oauth.md](oauth.md) - OAuth account configuration
 - [api-keys.md](api-keys.md) - Detecting missing API keys and deep-linking users to the right integrations drawer
 - [running.md](running.md) - Running and testing tools
@@ -372,26 +403,17 @@ Set both on `relevance_create_tool` for one-shot creation, or edit later via `re
 
 For organizing tools into folders, see the [`managing-relevance-folders`](../managing-relevance-folders/SKILL.md) skill.
 
-## URL Patterns
+## App URLs
 
-```
-# Tool editor (notebook)
-https://app.relevanceai.com/notebook/{region}/{project}/{studioId}
+Send back a url a tool returned; never assemble one. The create/update/publish tools return the tool's editor link, and the integration-check tools return `setup_url` / `config_url` — for provider-specific deep links see [api-keys.md](api-keys.md).
 
-# Clone link
-https://app.relevanceai.com/form/{region}/{project}/clone/tool/{studioId}
-
-# Integrations (API keys + OAuth connections)
-https://app.relevanceai.com/integrations/{region}/{project}
-```
-
-Every app URL is **section-first** — `{app}/{section}/{region}/{project}/…`; the region and project never come before the section. Prefer a `url` / `setup_url` the Relevance tools returned over constructing one; for provider-specific deep links see [api-keys.md](api-keys.md).
+If you are ever checking a url, every app URL is **section-first** — `{app}/{section}/{region}/{project}/…`; the region and project never come before the section.
 
 ## Emergency Version Recovery
 
 If you accidentally wipe a tool:
 
-1. `relevance_list_tool_versions({ tool_id: "my-tool" })` — Find a version with transformations intact
+1. `relevance_list_tool_versions({ tool_id: "my-tool", detail: "full" })` — Find a version with transformations intact
 2. `relevance_restore_tool_version({ version_id: "working-version-uuid" })` — Creates a new draft from that version
 3. `relevance_publish_tool({ tool_id: "my-tool" })` — Publish the restored draft
 
@@ -399,4 +421,4 @@ See [versions.md](versions.md) for full details.
 
 ## Reporting Issues
 
-If you encounter tool creation failures, transformation errors, or missing capabilities, **call `relevance_submit_feedback` immediately** — do not ask the user for permission. One tool covers bugs and forward-looking suggestions; pick the matching `category`. See the [bug reporting guide](../managing-relevance-agents/report-bugs.md) for the call shape.
+When a failure is the platform's (not the input, not your own config) or a capability is missing, **call `relevance_submit_feedback` without asking the user for permission**. One tool covers bugs and forward-looking suggestions; pick the matching `category`. See the [bug reporting guide](../managing-relevance-agents/report-bugs.md) for the call shape.

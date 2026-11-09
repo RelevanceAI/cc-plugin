@@ -1,6 +1,6 @@
 ---
 title: Knowledge Bases — deep reference
-description: Deep reference for knowledge-base operations — filter shapes, the data.* nesting rule, response formats, and bulk-update patterns.
+description: Deep reference for knowledge-base operations — filter shapes, the data.* nesting rule, the raw_filters shape in knowledge tool steps, response formats, and bulk-update patterns.
 ---
 
 # Knowledge Bases — deep reference
@@ -90,6 +90,40 @@ filters: [{
   ]
 }]
 ```
+
+## Knowledge tool steps (`retrieve_data` / `update_knowledge_set_rows`)
+
+Inside a tool, the Get knowledge (`retrieve_data`) and Update knowledge
+(`update_knowledge_set_rows`) steps filter with `raw_filters`, which has its
+own shape. The filter entries above (`{ field, filter_type, condition_value }`)
+don't apply there: their keys are read as column names, so the step matches
+no row and reports no error.
+
+```
+// Rows whose status is "queued" and channel is "sms"
+raw_filters: [{ status: "queued", channel: "sms" }]
+
+// Rows whose status is "queued" or "retry"
+raw_filters: [{ status: ["queued", "retry"] }]
+```
+
+- `raw_filters` is a list of exact-match objects. Each key is a column
+  (`status` or `data.status`; `document_id` is the row's own id), each value
+  must match exactly, and a list value matches any of its items. Every key in
+  one object must match.
+- Objects combine by the step's `filter_type`: `and` (the `retrieve_data`
+  default) or `or`.
+- There are no ranges, comparisons or dates. Read the rows, then filter due
+  dates and the like in a code step.
+- An empty list (`[]` or `[{}]`) matches every row: `retrieve_data` returns
+  them (up to `page_size`) and `update_knowledge_set_rows` updates them (up to
+  1,000 per run).
+- Always pass a list, even for one filter: `[{"status": "queued"}]`, not
+  `{"status": "queued"}`.
+
+`delete_knowledge_set_rows` reads `raw_filters` the same way, up to 100,000 rows
+per run: an empty list deletes every row in the table. Never send an empty or missing
+filter to update or delete unless the user asked to change every row.
 
 ## Response shapes
 

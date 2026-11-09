@@ -13,11 +13,14 @@ Quick reference for the most commonly used tool-step transformations in Relevanc
 
 ## LLM & AI
 
-| Name                       | Description                                                             |
-| -------------------------- | ----------------------------------------------------------------------- |
-| `prompt_completion`        | Send a prompt to an LLM and get a text response                         |
-| `prompt_completion_vision` | Send images + text to vision-capable LLMs for image analysis            |
-| `generate_image`           | Generate images from text descriptions (DALL-E, Stable Diffusion, etc.) |
+> When an agent calls the tool, the agent is already the LLM: put judgement, summaries and wording in its system prompt. These steps are for the cases in [Tools vs Agents](SKILL.md#tools-vs-agents-what-goes-where).
+
+| Name                       | Description                                                                                                             |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `prompt_completion`        | Send a prompt to an LLM and get a text response                                                                         |
+| `prompt_completion_vision` | Send images + text to vision-capable LLMs for image analysis                                                            |
+| `generate_image`           | Generate images from text descriptions (DALL-E, Stable Diffusion, etc.)                                                 |
+| `decide`                   | Answer choice, score and yes/no questions about text or JSON with a decision model, with a probability for every option |
 
 ## Data & Search
 
@@ -29,10 +32,10 @@ Quick reference for the most commonly used tool-step transformations in Relevanc
 
 ## API Calls
 
-| Name                 | Description                                                                                                                                                             |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `api_call`           | Make HTTP requests to **external** APIs (no auth injection)                                                                                                             |
-| `relevance_api_call` | Make HTTP requests to **Relevance platform** APIs (auto-injects caller's auth). Use for platform proxy endpoints like `/replicate/*`, `/knowledge/*`, `/agents/*`, etc. |
+| Name                 | Description                                                                                                                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `api_call`           | Make HTTP requests to **external** APIs (no auth injection)                                                                                                                 |
+| `relevance_api_call` | Make HTTP requests to **Relevance platform** APIs (auto-injects the run's own key). Use for platform proxy endpoints like `/replicate/*`, `/knowledge/*`, `/agents/*`, etc. |
 
 ### Per-provider API-call steps — the escape hatch for "there's no step for that"
 
@@ -88,17 +91,16 @@ correct for their own step and wrong for the other:
 
 ```typescript
 // `url` shape — google_api_call_v2 takes a FULL url (required: url, method, oauth_account_id).
-// Worked example: listing Google Calendar events, which has no dedicated native step
-// (the Google Calendar natives are only check_google_calendar_v2 / create_google_calendar_event_v2).
+// Worked example: listing the user's calendars, which has no dedicated native step.
 {
-  name: "get_calendar_events",
+  name: "get_calendars",
   transformation: "google_api_call_v2",
   params: {
     oauth_account_id: "{{params.google_account}}",
     method: "GET",
-    url: "https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={{params.start}}&timeMax={{params.end}}&singleEvents=true&orderBy=startTime"
+    url: "https://www.googleapis.com/calendar/v3/users/me/calendarList"
   },
-  output: { events: "{{response_body.items}}" }
+  output: { calendars: "{{response_body.items}}" }
 }
 
 // `path` shape — slack_api_call takes a RELATIVE path (base url https://slack.com/api is fixed).
@@ -236,7 +238,7 @@ correct for their own step and wrong for the other:
 | ------------------------ | ------------------------------------------------- |
 | `google_sheets_api_call` | Read/write Google Sheets                          |
 | `google_docs_action`     | Create/edit Google Docs                           |
-| `confluence_*`           | Confluence page/post operations                   |
+| `confluence_native_*`    | Get, create and update pages; blog posts; search  |
 | `zoom_api_call`          | Zoom API operations                               |
 | `recallai_*`             | Meeting bot operations (join, record, transcribe) |
 
@@ -244,27 +246,28 @@ correct for their own step and wrong for the other:
 
 ## Quick Selection Guide
 
-| Need to...                              | Use                                                                 |
-| --------------------------------------- | ------------------------------------------------------------------- |
-| Generate/analyze text                   | `prompt_completion`                                                 |
-| Analyze images                          | `prompt_completion_vision`                                          |
-| Search your docs                        | `search` (needs a `knowledge:<id>` source)                          |
-| Scrape a website                        | `browserless_scrape` or `firecrawl`                                 |
-| Advanced scraping (social, e-commerce)  | `run_apify_dynamic`                                                 |
-| Generate video/image/audio              | `run_replicate_dynamic`                                             |
-| Send LinkedIn messages                  | `linkedin_action` (Unipile)                                         |
-| Get LinkedIn data                       | `get_linkedin_profile`                                              |
-| Call an integrated provider's API       | `{provider}_api_call` (auth injected — prefer this over `api_call`) |
-| Call an external API                    | `api_call`                                                          |
-| Call Relevance platform API (with auth) | `relevance_api_call`                                                |
-| Run an existing tool as a step          | `run_chain`                                                         |
-| Search Google                           | `serper_google_search`                                              |
-| Run custom Python                       | `python_code_transformation`                                        |
-| Run custom JS                           | `js_code_transformation`                                            |
-| If/else logic                           | `branch`                                                            |
-| Process a list                          | `loop`                                                              |
-| Send email                              | `send_sendgrid_email`                                               |
-| Wait/pause                              | `delay`                                                             |
+| Need to...                                                                 | Use                                                                               |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Generate/analyze text in a tool no agent reads, or extract fields per item | `prompt_completion` (when an agent calls the tool, put this in its system prompt) |
+| Label, score or yes/no that a later step in the tool needs                 | `decide`                                                                          |
+| Analyze images                                                             | `prompt_completion_vision`                                                        |
+| Search your docs                                                           | `search` (needs a `knowledge:<id>` source)                                        |
+| Scrape a website                                                           | `browserless_scrape` or `firecrawl`                                               |
+| Advanced scraping (social, e-commerce)                                     | `run_apify_dynamic`                                                               |
+| Generate video/image/audio                                                 | `run_replicate_dynamic`                                                           |
+| Send LinkedIn messages                                                     | `linkedin_action` (Unipile)                                                       |
+| Get LinkedIn data                                                          | `get_linkedin_profile`                                                            |
+| Call an integrated provider's API                                          | `{provider}_api_call` (auth injected — prefer this over `api_call`)               |
+| Call an external API                                                       | `api_call`                                                                        |
+| Call Relevance platform API (with auth)                                    | `relevance_api_call`                                                              |
+| Run an existing tool as a step                                             | `run_chain`                                                                       |
+| Search Google                                                              | `serper_google_search`                                                            |
+| Run custom Python                                                          | `python_code_transformation`                                                      |
+| Run custom JS                                                              | `js_code_transformation`                                                          |
+| If/else logic                                                              | `branch`                                                                          |
+| Process a list                                                             | `loop`                                                                            |
+| Send email                                                                 | `send_sendgrid_email`                                                             |
+| Wait/pause                                                                 | `delay`                                                                           |
 
 ---
 

@@ -48,11 +48,12 @@ To relabel an existing version after the fact (without publishing), use `relevan
 
 ```
 relevance_list_tool_versions({
-  tool_id: "my-tool-id"
+  tool_id: "my-tool-id",
+  detail: "full"
 })
 ```
 
-Returns version snapshots with `version_id`, `created_at`, and `config` (including `transformations`).
+Returns version snapshots with `version_id`, `created_at`, and, with `detail: "full"`, `config` (including `transformations`). Without it you get the history only.
 
 ### 2. Find Working Version
 
@@ -86,14 +87,15 @@ relevance_publish_tool({
 
 ## Editing Steps Without Wiping the Rest
 
-For step edits, use the dedicated per-step tools, all of which save to DRAFT only:
+For step edits, use the dedicated step tools, all of which save to DRAFT only:
 
+- `relevance_update_tool_steps` — every edit to one tool in one call: `add` / `update` / `remove` / `move` ops applied in order, saved once.
 - `relevance_add_tool_step` — insert at a 0-based `position` (default = append; pass `position >= step_count` to append explicitly).
-- `relevance_update_tool_step` — shallow-merge a patch into one step by 0-based `step_index`.
+- `relevance_update_tool_step` — merge a patch into one step by 0-based `step_index` (`null` clears a field).
 - `relevance_remove_tool_step` — remove one step by 0-based `step_index`.
 - `relevance_move_tool_step` — reorder by `from_index` → `to_index` (both 0-based).
 
-Always call `relevance_get_tool` first to confirm current step indices. The same principle holds for the agent side: never pass `actions` to `relevance_update_agent` — use `relevance_attach_tools_to_agent` / `relevance_update_agent_action` / `relevance_detach_tools_from_agent`.
+Never issue several step-edit calls to the same tool at once — the last save wins and the other edits are lost. Always call `relevance_get_tool` first to confirm current step indices. The same principle holds for the agent side: never pass `actions` to `relevance_update_agent` — use `relevance_attach_tools_to_agent` / `relevance_update_agent_action` / `relevance_detach_tools_from_agent`.
 
 ## Version Retention
 

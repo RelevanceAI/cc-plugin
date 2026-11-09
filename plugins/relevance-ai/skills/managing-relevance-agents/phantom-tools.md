@@ -1,6 +1,6 @@
 ---
 title: Phantom Tools
-description: Reference for the 14 system-injected tools (thinking, memory, escalation, Python executor, remote MCP, etc.) that are enabled via agent settings and must never be written into the `actions` array. Load when these tools appear in errors or when enabling agent capabilities.
+description: Reference for the 14 system-injected tools (thinking, memory, escalation, remote MCP, knowledge, etc.) that are enabled via agent settings and must never be written into the `actions` array. Load when these tools appear in errors or when enabling agent capabilities.
 ---
 
 # Phantom Tools
@@ -34,8 +34,8 @@ custom_metadata: { fields... }       →   add_conversation_metadata,
 is_scheduled_triggers_enabled: true  →   create_scheduled_trigger,
                                          delete_scheduled_trigger
 escalations: { email/slack config }  →   escalate_to_manager
-enable_python_executor: true         →   python_executor
-remote_mcp_configs: [...]            →   mcp_remote_tool_call
+remote_mcp_configs: { key: {...} }   →   mcp_remote_tool_call,
+                                         mcp_remote_resource_read
 ```
 
 When `relevance_get_agent_tools` returns tools, phantom tools are included with `is_phantom_tool: true`. But they should **never** be written back to the agent's `actions` array via `relevance_update_agent` or `relevance_attach_tools_to_agent`.
@@ -99,41 +99,32 @@ Enable via `relevance_update_agent` with `patch: { is_scheduled_triggers_enabled
 
 ### Escalate to Manager Tool
 
-| Field             | Value                                                                                            |
-| ----------------- | ------------------------------------------------------------------------------------------------ |
-| **ID**            | `escalate_to_manager`                                                                            |
-| **Enabled by**    | `escalations` config with email addresses or Slack channels                                      |
-| **Purpose**       | Escalate conversations to human managers via email or Slack notifications                        |
-| **How to enable** | Set `escalations: { email: { emails: [...] } }` or `escalations: { slack: { channels: [...] } }` |
+| Field             | Value                                                                                              |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| **ID**            | `escalate_to_manager`                                                                              |
+| **Enabled by**    | `escalations` config with email addresses or Slack channels, or a notification rule on `escalated` |
+| **Purpose**       | Escalate conversations to human managers via email or Slack notifications                          |
+| **How to enable** | Set `escalations: { email: { emails: [...] } }` or `escalations: { slack: { channels: [...] } }`   |
 
-`escalations` is blocked from modification via the tools — set it via the Relevance AI dashboard. See the **Blocked Fields** section below for why.
+`escalations` is blocked from modification via the tools — set it via the Relevance AI dashboard. See the **Blocked Fields** section below for why. An `escalated` notification rule can be added with `relevance_update_agent` ([notification-rules.md](notification-rules.md)), but never on an agent that has `escalations` set.
 
-### Python Executor Tool
+### Remote MCP Tools
 
-| Field             | Value                                                       |
-| ----------------- | ----------------------------------------------------------- |
-| **ID**            | `python_executor`                                           |
-| **Enabled by**    | `enable_python_executor: true`                              |
-| **Purpose**       | Allow the agent to write and execute Python code at runtime |
-| **How to enable** | Set `enable_python_executor: true`                          |
-
-### Remote MCP Tool
-
-| Field             | Value                                                     |
-| ----------------- | --------------------------------------------------------- |
-| **ID**            | `mcp_remote_tool_call`                                    |
-| **Enabled by**    | `remote_mcp_configs` array with MCP server configurations |
-| **Purpose**       | Call tools on remote MCP servers                          |
-| **How to enable** | Set `remote_mcp_configs: [{ url: "...", ... }]`           |
+| Field             | Value                                                                               |
+| ----------------- | ----------------------------------------------------------------------------------- |
+| **IDs**           | `mcp_remote_tool_call`, `mcp_remote_resource_read`                                  |
+| **Enabled by**    | `remote_mcp_configs`, one entry per MCP server                                      |
+| **Purpose**       | Call tools on remote MCP servers; read resources, only on a server that exposes any |
+| **How to enable** | See [mcp-servers.md](mcp-servers.md)                                                |
 
 ### Agent Knowledge Tool
 
-| Field             | Value                                              |
-| ----------------- | -------------------------------------------------- |
-| **ID**            | `agent_knowledge` (prefix — actual IDs vary)       |
-| **Enabled by**    | Knowledge sets linked to the agent                 |
-| **Purpose**       | Query the agent's knowledge base (RAG)             |
-| **How to enable** | Link knowledge sets to the agent via the UI or API |
+| Field             | Value                                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------- |
+| **ID**            | `agent_knowledge_<knowledge_set>` (one per base)                                       |
+| **Enabled by**    | A `knowledge` entry with `usage_type: "tool"`; prompt-mode entries add no tool         |
+| **Purpose**       | Answer a question from the base by reading its rows with a long-context model, not RAG |
+| **How to enable** | `relevance_update_agent` with `knowledge: [{ knowledge_set, usage_type: "tool" }]`     |
 
 ### System-Internal Tools
 
@@ -177,6 +168,7 @@ The following agent config fields are **blocked from modification** via `relevan
 - `tags` — controls `tag_agent_conversation` phantom tool. **Not** a general-purpose metadata/labelling field.
 - `custom_metadata` — controls `add_conversation_metadata` / `read_conversation_metadata` phantom tools.
 - `escalations` — controls `escalate_to_manager` phantom tool.
-- `remote_mcp_configs` — controls `mcp_remote_tool_call` phantom tool.
+- `remote_mcp_configs` — controls `mcp_remote_tool_call` phantom tool. Change it with the MCP server tools instead: see [mcp-servers.md](mcp-servers.md).
+- `capabilities` — controls the computer sandbox tools.
 
-These fields are silently stripped before the patch is applied. To modify them, use the Relevance AI dashboard UI.
+These fields are silently stripped before the patch is applied. Apart from MCP servers, modify them in the Relevance app.

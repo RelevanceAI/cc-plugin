@@ -160,7 +160,7 @@ relevance_update_tool_steps({
 });
 ```
 
-Always call `relevance_get_tool` first to confirm step indices before inserting a note mid-chain — indices shift as steps are added, and each op's index refers to the step array after the ops before it.
+Always call `relevance_get_tool` with `version: 'draft'` first to confirm step indices before inserting a note mid-chain — indices shift as steps are added, and each op's index refers to the step array after the ops before it.
 
 ## When **not** to document
 

@@ -34,6 +34,13 @@ Each row carries both `error_rate` (percentage) and `error_count` (raw failure c
 
 Optional filter: `resource_ids` — IDs of the selected `resource_type`. Omit to include all.
 
+**Usage on the customer's own keys.** When the response has `section_rule: true`, rows also split out calls made on the customer's own keys, which cost 0 credits. Despite the field name, `own_key_model_calls` counts model calls plus tool API calls such as search or scrape steps run on the customer's own API key, so don't present it as model usage alone:
+
+- `agent` rows: `own_key_model_calls` and `own_key_tokens` (input plus output tokens of the model calls among them), plus `own_key_model_calls` per tool in `top_actions` and in total in `other_tools` (one object for the phantom and system tools `top_actions` leaves out).
+- `tool` rows: `own_key_model_calls`, the calls that agent-started runs of the tool made on the customer's key.
+
+Report own-key usage as a call count and tokens, never as credits: `credits_used` minus `platform_credits` is not a figure for usage on the customer's key. Without `section_rule` these fields are absent, and no analytics tool splits own-key usage out (`relevance_get_analytics_usage_breakdown` never does): say so rather than guessing which spend was on the customer's key.
+
 ### relevance_get_analytics_errors
 
 Recent errors from agent conversations, workforce tasks, and tool runs, plus a daily error-count time series. Use `resource_type` to scope to one origin; paginate with `cursor`.

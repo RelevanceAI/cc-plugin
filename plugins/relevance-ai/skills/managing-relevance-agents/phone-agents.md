@@ -1,6 +1,6 @@
 ---
 title: Phone Agent Best Practices
-description: Build production phone agents using the three-phase pre-call / phone / post-call pattern, with voice config, latency guidance, and prompt structure. Load when designing a voice agent or optimising call latency.
+description: Make an agent a phone agent (runtime engine, voice, call transfer) and build production phone agents using the three-phase pre-call / phone / post-call pattern, with latency guidance and prompt structure. Load when building or designing a voice agent or optimising call latency.
 ---
 
 # Phone Agent Best Practices
@@ -23,6 +23,29 @@ Pre-Call Agent  →  Phone Agent  →  Post-Call Agent
 **Post-Call Agent** — Processes the call outcome. CRM updates, summary generation, follow-up task creation. Runs after the call ends.
 
 **When a standalone phone agent is fine:** Simple, single-purpose calls with no pre-research and no post-call integrations.
+
+## Making an Agent a Phone Agent
+
+An agent takes and places calls only when `runtime.engine` is `"phone_call"`. `relevance_create_agent` can't set it, so create the agent, then set the engine and the phone settings in one `relevance_update_agent` patch:
+
+```typescript
+relevance_update_agent({
+  agent_id: '...',
+  patch: {
+    runtime: {
+      engine: 'phone_call',
+      phone_call: {
+        first_message_mode: 'agent-generates-first-message',
+        end_call_tool_enabled: true,
+        // voice, transfer_call_tool and the other settings below go here too
+      },
+    },
+  },
+});
+```
+
+- Don't set `runtime.enabled`. With no engine set, `runtime.enabled: true` makes every run fail with "Unhandled Runtime"; fix it with `runtime.enabled: false`.
+- The update's result shows `agent.runtime_engine`; it is absent on a default agent. Only `"phone_call"` takes calls, so check it before you tell the user the phone agent is built.
 
 ## Core Design Principles
 
@@ -120,17 +143,18 @@ Phase 3: Closing (30 seconds)
 
 ### Voice Providers
 
-**Cartesia Sonic-3** (recommended default)
+`runtime.phone_call.voice` is optional: leave it out and calls use a default ElevenLabs voice. If you set it, `provider`, `model` and `voiceId` are all required, or the update is rejected.
 
-- Better voice quality, lower cost (~5x cheaper than ElevenLabs)
-- 3-second voice cloning, 15 languages
-- Adjust `speed` param (0.8-1.0): slightly slower for empathetic calls
+| `provider`   | `model`                                                          |
+| ------------ | ---------------------------------------------------------------- |
+| `elevenlabs` | `eleven_v4_turbo`, `eleven_flash_v2_5`, `eleven_multilingual_v2` |
+| `cartesia`   | `sonic-3`, `sonic-2`                                             |
+| `openai`     | `gpt-4o-mini-tts`                                                |
 
-**ElevenLabs Multilingual V2**
-
-- Wider language support (70+ languages)
-- 30-second voice cloning requirement
-- Better for multilingual deployments
+- **ElevenLabs** is what the app gives a new phone agent, and the only provider that takes a voice ID outside the app's voice list, such as a cloned voice; a cloned voice needs the project's own ElevenLabs API key.
+- **Cartesia Sonic-3** costs less per minute of speech than ElevenLabs.
+- `voiceId` comes from the provider's voice list; let the user pick one in the agent's voice settings in the Relevance app rather than guessing an ID.
+- `speed` is 0.7-1.2: slightly slower suits empathetic calls. On outbound calls it only applies to ElevenLabs voices.
 
 ### Transcription (STT)
 
@@ -144,14 +168,35 @@ Phase 3: Closing (30 seconds)
 
 Key `runtime.phone_call` settings:
 
-| Setting                   | Recommendation                                                             | Why                                       |
-| ------------------------- | -------------------------------------------------------------------------- | ----------------------------------------- |
-| `first_message_mode`      | `agent-speaks-first` (inbound), `agent-generates-first-message` (outbound) | Inbound callers expect immediate greeting |
-| `end_call_tool_enabled`   | `true` always                                                              | Phantom tool for graceful call endings    |
-| `recording_enabled`       | `true` for production (see compliance note below)                          | Required for QA and compliance            |
-| `silence_timeout_seconds` | 30                                                                         | Prevents zombie calls                     |
+| Setting                   | Recommendation                                                                                    | Why                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `first_message_mode`      | `agent-speaks-first` with a `first_message` (inbound), `agent-generates-first-message` (outbound) | Inbound callers expect immediate greeting; without `first_message`, `agent-speaks-first` says nothing |
+| `end_call_tool_enabled`   | `true` always                                                                                     | Phantom tool for graceful call endings                                                                |
+| `recording_enabled`       | `true` for production (see compliance note below)                                                 | Required for QA and compliance                                                                        |
+| `silence_timeout_seconds` | 30                                                                                                | Prevents zombie calls                                                                                 |
 
 **Recording note:** Check jurisdictional consent requirements before enabling. See the Compliance section below.
+
+### Transferring a Call to a Person
+
+A phone agent can hand the call to a person. Add `transfer_call_tool` under `runtime.phone_call` in the same `relevance_update_agent` patch, with `enabled: true` (it defaults to off, and the agent gets no transfer tool without it) and at least one destination:
+
+```typescript
+transfer_call_tool: {
+  enabled: true,
+  destinations: [
+    {
+      type: 'number',
+      number: '+61255501234', // E.164
+      description: 'Sales team: transfer when the caller wants to buy or upgrade',
+      message: 'Transferring you to our sales team now.', // '' transfers silently
+      // extension: '123', // optional, outbound calls only
+    },
+  ],
+},
+```
+
+The agent decides when to transfer from each destination's `description`, so say when to use it there and in the system prompt. On outbound calls `message` is spoken as written; on inbound calls it is an instruction for what the agent says, and `extension` is not dialled.
 
 ### Agent Settings for Phone
 
@@ -208,7 +253,7 @@ Do NOT read the JSON out loud on the call.
 
 1. **Tool-heavy phone agents** -- every tool call is a "please hold" moment
 2. **Multi-objective agents** -- leads to unfocused, poor-quality calls
-3. **No escalation path** -- callers trapped in loops with no way to a human
+3. **No escalation path** -- callers trapped in loops with no way to a human. Add a transfer destination (see [Transferring a Call to a Person](#transferring-a-call-to-a-person))
 4. **Reading structured data aloud** -- JSON/lists spoken verbatim sounds robotic
 5. **Cost-optimized model** -- adds noticeable latency
 6. **Missing post-call processing** -- nothing recorded to CRM

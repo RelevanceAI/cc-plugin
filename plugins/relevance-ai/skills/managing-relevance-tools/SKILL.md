@@ -17,6 +17,8 @@ Skill for creating, configuring, running, and debugging Relevance AI tools (stud
 
 > **⚠️ Knowledge search reads a knowledge set, not a dataset:** the knowledge-search step (`transformation: "search"`) takes its source from `dataset_id`, which MUST resolve to a `knowledge:<knowledge_set_id>` value (or `knowledge:*` for all knowledge). Expose the source as a `params_schema` input with `metadata.content_type: "knowledge_set"` (renders the knowledge-set picker, which produces the `knowledge:`-prefixed value), or hardcode `dataset_id: "knowledge:<id>"` (get ids from `relevance_list_knowledge_sets`). Never a plain `type: "string"` input defaulting to a bare dataset name — it "looks filled in" but the step fails at run time with _"Search can only be performed on a knowledge set."_ See the [Knowledge Search pattern](patterns.md#knowledge-search-over-a-knowledge-set).
 
+> **⚠️ A tool that writes reports the write's own result:** a success field (`ok`, `updated`, `sent`) must come from the write step's response, such as `{{steps.<write_step>.output.status}}`, read in a step after the write or in the tool output. A code step that runs before the write cannot know whether the write worked. Do not set `continue_on_error` or `use_fallback_on_skip` on a write whose failure the caller must hear about: the step's `default_output_values` replace its output and, when they fill every key the step returns, the run still reports success with no error. See the [Write and confirm pattern](patterns.md#write-and-confirm).
+
 ## When to Use
 
 - Creating new tools with transformation workflows
@@ -118,7 +120,7 @@ Tools are for **external integrations and side effects** — actions that intera
 
 A tool fetches, writes and computes, and returns the records plus how many it scanned and kept. The agent that calls it carries the judgement in its system prompt: which items matter when no field decides it, the summary, the wording and the shape of the answer.
 
-- **Filter exact criteria in the fetch first.** When a field answers the question (sender, label, date, status, a marker address), filter on it in the fetch step's own query or parameters. Add a code step only for what those can't express (grouping, comparing against the current time, de-duplicating).
+- **Filter exact criteria in the fetch first.** When a field answers the question (sender, label, date, status, a marker address), filter on it in the fetch step's own query or parameters. A code step then does what a query can't express (grouping, comparing against the current time, de-duplicating).
 - **Look before you filter.** Before writing a filter over data you haven't seen, run the read step once on a small page with `relevance_run_transformation`: a guessed keyword that matches nothing returns an empty list that reads as "nothing found". Only probe a step that reads, never one that writes. A step writes when it sends or posts anything, or adds, changes or deletes data anywhere, a knowledge table included, since it may hold live data. Judge a step by what it does, not its name: a find-or-create step writes, and so can a search sent as a POST. A step you can't classify counts as one that writes.
 - **Return records and counts, not a write-up.** Return the fields the agent needs rather than whole bodies it won't read, plus the counts, so an empty result can be told apart from a broken fetch. Page the fetch and trim long bodies: everything returned is billed at the agent's model rate and re-sent on every turn.
 - **Records the agent handles one by one start it instead.** When each record should get its own task (each new lead qualified, each ticket answered), the fetching tool is not attached to the agent: it becomes a [tool trigger](../managing-relevance-agents/triggers.md#tool-triggers-one-task-per-item) that starts one task per record, and it returns an empty list, not an error, when nothing is new. A list the user already has (a CSV, a knowledge table) needs no fetching tool: Run in bulk starts one task per row ([Work Over Many Items](../managing-relevance-agents/many-items.md)). Attach it only when one run needs the whole list at once: a digest, a count, a comparison.
@@ -156,7 +158,7 @@ The agents handle reasoning; tools handle external actions. In evals, you simula
 | Tool                                        | Description                                                                                                                      |
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `relevance_list_tools`                      | List all tools in project                                                                                                        |
-| `relevance_get_tool`                        | Get full tool config (accepts `version` for draft inspection)                                                                    |
+| `relevance_get_tool`                        | Get full tool config (`version` for a draft; `step_indices` to read a long tool a few steps at a time)                           |
 | `relevance_create_tool`                     | Create a NEW tool — saves to DRAFT only; call `relevance_publish_tool` to make it live                                           |
 | `relevance_update_tool`                     | Update an existing tool — saves to DRAFT only                                                                                    |
 | `relevance_update_tool_steps`               | Every step edit to one tool in one call (`add`/`update`/`remove`/`move` ops, applied in order, one save) — saves to DRAFT        |
@@ -165,8 +167,8 @@ The agents handle reasoning; tools handle external actions. In evals, you simula
 | `relevance_remove_tool_step`                | Remove the step at 0-based `step_index` — saves to DRAFT                                                                         |
 | `relevance_move_tool_step`                  | Reorder a step from `from_index` to `to_index` (0-based) — saves to DRAFT                                                        |
 | `relevance_set_tool_output`                 | Edit the tool's runtime output map (`transformations.output`) and `output_schema` — saves to DRAFT. See [outputs.md](outputs.md) |
-| `relevance_create_tool_from_transformation` | Create tool from transformation with auto-generated config                                                                       |
-| `relevance_publish_tool`                    | Publish tool draft. Always shows an approval card.                                                                               |
+| `relevance_create_tool_from_transformation` | Create a tool from a transformation with auto-generated config — saves to DRAFT only, or returns an existing tool that uses it   |
+| `relevance_publish_tool`                    | Publish tool draft. Shows an approval card unless the user has already allowed it.                                               |
 | `relevance_trigger_tool`                    | Run a tool — returns a `job_id` to poll (accepts `version` for testing the draft)                                                |
 | `relevance_poll_tool_result`                | Poll for the tool result using the `job_id`                                                                                      |
 | `relevance_get_latest_tool_run`             | Get latest run ID                                                                                                                |
@@ -255,7 +257,7 @@ relevance_update_tool({
 });
 
 // RIGHT — fetch the full schema, add your property, send the whole thing back:
-const tool = relevance_get_tool({ studio_id: 'my-tool' });
+const tool = relevance_get_tool({ studio_id: 'my-tool', version: 'draft' });
 relevance_update_tool({
   studio_id: 'my-tool',
   params_schema: {
@@ -271,13 +273,17 @@ relevance_update_tool({
 
 The **same re-send-the-whole-thing rule applies to every top-level field** that holds a structure — e.g. `state_mapping`. Only `params_schema` drops are guarded against automatically; a partial `state_mapping` (or any other structured top-level field) is replaced silently with no warning, so preserve those by hand.
 
+### Editing a tool something else uses
+
+Publishing a tool changes it for everything that runs it, not only the agent you are working on. When `relevance_get_tool` returns `used_by`, read it before you edit an existing tool: it lists the agents, tools and workforces in this project that use the tool, but not triggers that run it or anything outside the project. If `used_by.dependants` lists an agent, tool or workforce besides the one the user asked about, name them to the user before you edit, and offer a copy for theirs instead: `relevance_clone_public_tool` with this project and region makes one. The copy drops connected accounts and copies only the tools it calls that the user can open, up to three levels deep, so reconnect its accounts, check which tools its steps call and run it once before you swap it in on their agent. If they still want the shared tool changed, name what uses it again when you publish. Each list holds up to 50; `has_more` marks a list with more. Give the user names, not descriptions: an entry may be one they cannot open, as an agent with `can_view: false` is. If the read returns `used_by_error` instead, tell the user you could not check what else uses the tool before you publish it.
+
 ### Editing an existing complex tool safely
 
 Complex tools (many params, `state_mapping`, multi-step transformations) are where silent data loss bites. Before editing one:
 
-1. **`relevance_get_tool` first** and work from its real config — never edit from memory.
+1. **`relevance_get_tool` first** and work from its real config — never edit from memory. If the tool is too long to read whole (many steps, or long code or prompts), or a read comes back cut off, read it in parts: `relevance_get_tool({ studio_id, version: 'draft', step_indices: [] })` returns every other field plus a `step_outline` (each step's index, name, transformation and length), then pass the indices of the steps you will change or check, a few at a time. Always read the draft: step indices refer to it. Never edit a step you have not read whole; if one step alone is too long to read, tell the user rather than editing it from a partial read.
 2. **Preserve every existing property** you are not deliberately changing (see the `params_schema` rule above; steps/outputs have their own granular tools — do not pass `transformations` to `update_tool`).
-3. **Diff before you publish.** Compare the draft against the pre-edit config and confirm nothing you didn't intend to touch changed (params, `state_mapping` keys, step outputs). If your harness/UI can show a diff, review it; otherwise call `relevance_get_tool` on the draft and eyeball it.
+3. **Diff before you publish.** Compare the draft against the pre-edit config and confirm nothing you didn't intend to touch changed (params, `state_mapping` keys, step outputs). If your harness/UI can show a diff, review it; otherwise call `relevance_get_tool` on the draft and eyeball it (on a long tool, read the steps you changed with `step_indices`).
 4. **Verify along the real path** (see [running.md](running.md#testing-workflow)) before telling the user it works.
 
 ### Creating Tools from Transformations
@@ -286,11 +292,12 @@ Fastest way to create a tool - auto-generates params_schema, state_mapping, and 
 
 ```typescript
 relevance_create_tool_from_transformation({
-  transformationId: 'serper_google_search',
+  transformation_id: 'serper_google_search',
   title: 'Google Search', // optional
 });
-// Searches existing tools first to avoid duplicates
 // Returns { studio_id, tool, wasExisting: boolean }
+// A new tool is a DRAFT: relevance_publish_tool publishes it.
+// wasExisting: true means nothing was created — an existing tool already uses the step.
 ```
 
 See [creating.md](creating.md) for full workflow.

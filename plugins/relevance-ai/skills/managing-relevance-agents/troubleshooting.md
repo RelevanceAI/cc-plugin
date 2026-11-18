@@ -140,6 +140,12 @@ Step N: API call        Step 0: Agent/Trigger
 
 When the root cause is a missing or wrong OAuth account (or a missing API key), don't just tell the user to "reconnect the account" in prose — give them the **clickable connect link** if your harness provides one. Call `relevance_check_tool_integration_requirements({ tool_ids: [...], agent_id })` and surface the per-provider `setup_url` it returns. Load the `managing-relevance-tools/integration-setup` skill for the full flow.
 
+### Tool Fails With "Unauthorized" Only in Triggered Runs
+
+**Symptom:** a tool works when the user chats with the agent, but fails with "Unauthorized" in runs a trigger, schedule or webhook starts, in an agent or a workforce, including an approval given outside the app, such as from Slack.
+
+**Cause:** the tool's account is private to whoever connected it (`namespace: "user-private"` in `relevance_list_oauth_accounts`), and a triggered run has no person to act as. Reconnecting doesn't help, and nor does retrying. Offer the fixes in [Accounts in triggered runs](../managing-relevance-tools/oauth.md#accounts-in-triggered-runs).
+
 ### One Task Handles a Whole List
 
 **Symptom:** one run works through every lead, ticket or row. One bad record stops the rest, or records are handled again on the next run.

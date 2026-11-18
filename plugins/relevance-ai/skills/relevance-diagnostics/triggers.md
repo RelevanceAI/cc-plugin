@@ -127,7 +127,7 @@ relevance_list_tasks({ view: "errored", agent_id })                     → the 
 relevance_list_workforce_tasks({ workforce_id, status_filter?, date_range? }) → workforce runs
 ```
 
-Prefer rows whose `creation_surface` is `trigger` and whose time matches the run. A failing task is an agent or workforce problem: hand it to the parent skill's single-resource routine (`relevance-diagnostics/SKILL`, Workflow 2) rather than diagnosing it here.
+Prefer rows whose `creation_surface` is `trigger` and whose time matches the run. Each list returns one page, ordered by last update. Before you say a run never became a task, or count tasks, narrow to when the tasks were created with `date_range` (`relevance_list_workforce_tasks`, or `relevance_list_tasks` with the agent's `agent_id` and the `states` you count, since its default view leaves out completed tasks), and keep fetching pages while `has_more` is true. A task updated while you page moves to the top, so it can be skipped or seen twice: count each `task_id` once, and read the first page again before you say a task is missing. A failing task is an agent or workforce problem: hand it to the parent skill's single-resource routine (`relevance-diagnostics/SKILL`, Workflow 2) rather than diagnosing it here.
 
 ## Fix
 
@@ -173,7 +173,7 @@ Workforce triggers are nodes in the graph: read `relevance_get_workforce`, chang
 There is no "run it now". A trigger is verified by its **next run**:
 
 1. Note the time you applied the fix (or the user reconnected).
-2. Work out when the next run is due: a `recurring` schedule or a `tool_trigger`'s `run_schedule` says so; polling triggers (mail, calendar, CRM) run on their interval — minutely unless the configuration sets hourly or daily; webhooks run when the next event arrives.
+2. Work out when the next run is due: a `recurring` schedule or a `tool_trigger`'s `run_schedule` says so, except that a `minutely` or `hourly` one ignores `hour`: its next run is at most one interval away; polling triggers (mail, calendar, CRM) run on their interval — minutely unless the configuration sets hourly or daily; webhooks run when the next event arrives.
 3. When it is due, re-read `relevance_get_trigger` and read the row:
    - `last_successful_run_at` after the fix time **and** `last_failed_at` not later than that → **verified**.
    - `last_failed_at` after the fix time and later than `last_successful_run_at` → **not fixed**. Read the new `last_error_message`; it may be a different cause. Iterate.

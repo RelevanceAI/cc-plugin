@@ -25,6 +25,12 @@ Tools authenticate with external services in one of two ways. This doc is the ro
 - **Before triggering an agent** — verify integrations are configured so the run doesn't fail mid-conversation.
 - **When investigating an already-failed task or run** — if the root cause is a missing or wrong OAuth account / API key, fetch the connect link here rather than describing the Integrations page in prose.
 
+## Which provider to connect
+
+Connect the provider the step declares, never one inferred from the product's name. One vendor can have several providers, each with its own permissions: the native Google Sheets, Slides and Drive steps go through `google_drive_native`, Gmail and Calendar through `google`, and a Google Doc through either, depending on the step. So when nothing is built yet, pick the step first, then read its provider and `setup_url` from `relevance_get_transformation_requirements({ transformation_id })`. `relevance_list_oauth_accounts({ provider })` returns a `setup_url` for whichever provider you pass, so it is the right link only once a step's requirements have named that provider.
+
+A link to a file in an app the user signs in to (a Google Doc, Sheet, Slides deck or Drive file, a SharePoint or OneDrive file) is private unless the user says it is public: a web fetch or a scrape step gets a sign-in page, not the file. Read it with that app's tool step through the user's connected account: for a Google file, `google_drive_native_download_file` with an export `mime_type` (`text/plain`, `text/csv`), or the file type's own native read step.
+
 ## Detecting missing integrations
 
 ```typescript
@@ -73,7 +79,7 @@ Response shape (trimmed):
 
 **Status values:**
 
-- `configured` — user or org already has a key/account; tool will work.
+- `configured` — the project has a key, or an account with the needed permission. It may not be the account set on the tool, or one this user can use: check that in `relevance_list_oauth_accounts`. A run a trigger starts can't use an account private to this user: see [Accounts in triggered runs](oauth.md#accounts-in-triggered-runs).
 - `platform_key_available` (API keys only) — Relevance has a shared key fallback; the tool will work, user can optionally add their own.
 - `missing` — user action required. Send them the entry's `setup_url`.
 

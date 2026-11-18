@@ -378,6 +378,68 @@ except Exception as e:
 }
 ```
 
+## Write and confirm
+
+A tool that changes a record (update a draft, edit a row, post a message) must return what the write actually did. Read, change, write, then read the record back and compare:
+
+```typescript
+[
+  {
+    name: 'get',
+    transformation: 'google_api_call_v2',
+    params: {
+      method: 'GET',
+      url: '…/drafts/{{params.draft_id}}',
+      oauth_account_id: '{{params.google_account}}',
+    },
+  },
+  {
+    name: 'edit',
+    transformation: 'js_code_transformation',
+    params: {
+      code: '/* build the new body from steps.get; return { body } — no success fields here */',
+    },
+  },
+  {
+    name: 'put',
+    transformation: 'google_api_call_v2',
+    params: {
+      method: 'PUT',
+      url: '…/drafts/{{params.draft_id}}',
+      body: '{{steps.edit.output.transformed.body}}',
+      oauth_account_id: '{{params.google_account}}',
+    },
+  },
+  {
+    name: 'check',
+    transformation: 'google_api_call_v2',
+    continue_on_error: true, // a failed read-back must not fail a write that landed
+    default_output_values: [
+      { original_key: 'status', value: 0 },
+      { original_key: 'response_body', value: {} },
+    ],
+    params: {
+      method: 'GET',
+      url: '…/drafts/{{params.draft_id}}',
+      oauth_account_id: '{{params.google_account}}',
+    },
+  },
+  {
+    name: 'confirm',
+    transformation: 'js_code_transformation',
+    params: {
+      code: '/* if steps.check status is 0 the read-back failed: return { updated: "unknown" }. Else decode every part (Gmail parts are base64url), compare with steps.edit; return { updated, mismatches } */',
+    },
+  },
+];
+// Tool output: success comes from after the write, never from `edit`.
+// { updated: "{{steps.confirm.output.transformed.updated}}", mismatches: "{{steps.confirm.output.transformed.mismatches}}", update_status: "{{steps.put.output.status}}" }
+```
+
+- **Success comes from the write step.** `google_api_call_v2` fails the step on any 4xx or 5xx response, so a `put` that returned means the provider accepted the write, and its `status` is the provider's. The generic `api_call` step fails only with `raise_error_on_error_response: true`; without it a 4xx comes back as a finished step, so set it on a write or check `status` yourself. Compute `ok`/`updated` in a step after the write, or not at all; a code step before it is reporting a guess.
+- **Let a failed write fail the run.** With `continue_on_error`, a failed step is replaced by its `default_output_values` and, when those fill every key the step must return (for an API-call step, `status` and `response_body`), the run reports success with an empty error list — `status: 0` is a default, not a provider's answer; never default a status to a success value such as `200`. A skipped step with `use_fallback_on_skip` does the same. Use either only on a step whose failure does not matter to the caller, and never return a success field that ignores it.
+- **Read the record back.** A 2xx says the provider accepted the request, not that every part changed. A record can hold the same content more than once — an email has a plain-text part and an HTML part — so update every copy, and compare the read-back with what you meant to write before telling the user it changed. The read-back is the one step that may take `continue_on_error`: if it fails after the write landed, return `updated` as unknown rather than failing the run, so a caller doesn't retry and write twice.
+
 ## Conditional Branching
 
 Different actions based on input.

@@ -119,8 +119,8 @@ Reference the OAuth parameter using `oauth_account_id`:
 | `google`              | `email-read-write`                  | Gmail read/write                   |
 | `google`              | `calendar-read-write`               | Google Calendar                    |
 | `google`              | `google-docs-read-write`            | Google Docs                        |
-| `google_sheets`       | `google-sheets-read-write`          | Google Sheets                      |
-| `google_drive`        | `pipedream-google-drive-read-write` | Google Drive                       |
+| `google_sheets`       | `google-sheets-read-write`          | Google Sheets (third-party)        |
+| `google_drive`        | `pipedream-google-drive-read-write` | Google Drive (third-party)         |
 | `google_drive_native` | `google-drive-read-write`           | Google Drive, Docs, Sheets, Slides |
 | `slack`               | `slack-channel-post`                | Post to Slack channels             |
 | `slack`               | `slack-notifications`               | Slack notifications                |
@@ -196,6 +196,7 @@ relevance_list_oauth_accounts({ provider: 'ahrefs' });
       provider: 'ahrefs',
       label: 'Ahrefs',
       connected_by_you: true,
+      namespace: 'user-private',
       tokens: [{ permission_types: ['pipedream-ahrefs-read-write'] }],
     },
   ],
@@ -203,7 +204,7 @@ relevance_list_oauth_accounts({ provider: 'ahrefs' });
 }
 ```
 
-A token needing reconnection carries `refresh_token_invalid: true`. `connected_by_you: false` marks an account this user didn't connect, usually one a teammate shared with the project: runs on it act as whoever connected it, in their account and with their access. With `provider`, `setup_url` is where the user connects an account of their own. Pass `detail: 'full'` for each token's scopes, metadata and dates.
+A token needing reconnection carries `refresh_token_invalid: true`. `connected_by_you: false` marks an account this user didn't connect, usually one a teammate shared with the project: runs on it act as whoever connected it, in their account and with their access. `namespace` says who can use it: `"project"`, or none on an older account, is shared with the project; `"user-private"` is usable only by whoever connected it, and only in runs they start, so a trigger can't use it ([Accounts in triggered runs](#accounts-in-triggered-runs)). With `provider`, `setup_url` is where the user connects an account of their own. Pass `detail: 'full'` for each token's scopes, metadata and dates.
 
 ## Finding Transformation OAuth Requirements
 
@@ -221,7 +222,7 @@ If you only need the raw schema (e.g. you're inspecting `oauth_permissions` meta
 
 A provider can have several connected accounts, and a blank account input runs as the provider's first one, whoever that is. So choose one on purpose, once per provider per conversation.
 
-First make sure it is the right provider. One vendor can have several, each with its own permissions: Google Docs can be written through `google` with `google-docs-read-write`, or through `google_drive_native`. An account without the step's permission cannot run it. Before asking the user to connect or reconnect, list their accounts with no provider filter and `detail: 'full'`; if another connected provider covers the job, switch to its native step.
+First make sure it is the right provider: the one the step's requirements name, never one inferred from the product's name ([Which provider to connect](integration-setup.md#which-provider-to-connect)). One vendor can have several, each with its own permissions: Google Docs can be written through `google` with `google-docs-read-write`, or through `google_drive_native`. An account without the step's permission cannot run it. Before asking the user to connect or reconnect, list their accounts with no provider filter and `detail: 'full'`; if another connected provider covers the job, switch to its native step.
 
 1. List the provider's accounts with `relevance_list_oauth_accounts({ provider })`. An account is **usable** when it is shared with the project (`namespace: "project"`, or no `namespace` on an older account) or connected by this user (`connected_by_you: true`), and none of its tokens has `refresh_token_invalid: true`. Never offer or use a colleague's private account.
 2. If the account marked `default_oauth_account: true` is usable, use it: the user chose it. If the only usable account has `connected_by_you: true`, use that. Otherwise ask the user, and keep using the answer:
@@ -229,7 +230,7 @@ First make sure it is the right provider. One vendor can have several, each with
    - The only usable account is someone else's: name it by its label, say it isn't one they connected and that runs will act as whoever connected it, and offer either using it or connecting their own at the listing's `setup_url`.
    - The only account needing reconnection is someone else's: the user can't reconnect it, so offer connecting their own at the listing's `setup_url`, or asking whoever connected it to reconnect.
 
-   When the build uses an account the user didn't connect, name it again when you hand the build back.
+   When the build uses an account the user didn't connect, name it again when you hand the build back. When a trigger, schedule or webhook will run the build, the user's own private account fails there: see [Accounts in triggered runs](#accounts-in-triggered-runs).
 
 3. Pass its `account_id` everywhere the account goes:
 
@@ -244,6 +245,17 @@ First make sure it is the right provider. One vendor can have several, each with
 | Work you hand to another agent | the `account_id` in its instructions                                                                 |
 
 No account of that provider connected at all? Leave the input unset and send the user the setup link: omit it from `default_values` (send `null` to remove one already there), never an empty string. Once they connect, set the new `account_id` wherever the input goes: a blank input runs as the provider's first account, which may not be theirs. If accounts exist but none is usable, follow step 2 and the permission check above: ask the user to choose, reconnect or switch connector. Never write a placeholder or made-up account id: a value that matches no account fails every real run, even after one is connected.
+
+## Accounts in triggered runs
+
+A run that a trigger, schedule or webhook starts has no person to act as, so it can't use an account private to whoever connected it (`namespace: "user-private"`), even when that is the person who built the agent and the trigger. Every tool call on one fails with "Unauthorized", in an agent or a workforce, except one its owner approves in the app, though the same tool works when that person runs the agent or tool themselves. Reconnecting doesn't fix it. An account shared with one tool in the app works in that tool's runs too, though the listing still shows it as private, so take the user's word if they say they have done that.
+
+So before a trigger goes live, and before you give a triggered agent or workforce a tool that needs an account, check the accounts its runs will use: each tool the agent calls (the account input in that tool's `default_values` on the agent, from `relevance_get_agent` with `summary: false`), the same for each sub-agent it calls, each agent in a workforce and each workforce tool node (its edge's `action_config.default_values`), and the tool a `tool_trigger` runs (`tool_config.params`). Look each one up in `relevance_list_oauth_accounts`.
+
+- **The user's own private account** (`connected_by_you: true`, `namespace: "user-private"`): tell them before you create the trigger. Name the account by its label and the tool that uses it, say that triggered runs will fail on that tool, and offer a usable account already shared with the project, chosen as in [Choosing the account](#choosing-the-account), or sharing theirs with the project at the listing's `setup_url` for that provider. Say what sharing means: every run in the project can then use it, colleagues' agents and their triggered runs included, each acting as them in their account, and it can't be undone.
+- **An account the listing doesn't show**, when no `warning` says it was cut short: it is someone else's private account, which fails in triggered runs unless whoever connected it has shared it with that tool, or one that's gone, which fails in every run. Say you can't see it and what that means, and offer a usable project account or connecting their own. Never suggest sharing it: that is its owner's decision.
+
+If they keep the account and still want the trigger, create it and say again, when you hand back, that its runs will fail until the account is shared.
 
 ## CRITICAL: OAuth for Agent-Called Tools
 

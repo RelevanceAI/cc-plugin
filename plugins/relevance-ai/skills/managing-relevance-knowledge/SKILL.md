@@ -111,7 +111,7 @@ Attach a base to an agent                      relevance_update_agent (patch.kno
 | `relevance_update_knowledge_rows`    | `knowledge_set`, `updates`            | ❌ approval |
 | `relevance_delete_knowledge_rows`    | `knowledge_set`, `document_ids`       | ❌ approval |
 | `relevance_delete_knowledge_columns` | `knowledge_set`, `fields`             | ❌ approval |
-| `relevance_export_knowledge`         | `knowledge_set`                       | ❌ approval |
+| `relevance_export_knowledge`         | `knowledge_set`                       | ✅ no edits |
 | `relevance_import_knowledge_file`    | `knowledge_set`, `path` or `file_url` | ❌ approval |
 
 ## When create returns "already exists"
@@ -199,8 +199,8 @@ message, so the agent needs neither.
 2. **Attach and reference.** Send one `relevance_update_agent` whose patch
    carries the full `knowledge` array and a `system_prompt` with the variable
    under a line that says what it is. For a long prompt, attach first and then
-   add the variable with `relevance_edit_agent_system_prompt`, one after the
-   other. A variable listed in `knowledge_variables_appended` was added to the
+   add the variable to the prompt with `relevance_edit_agent_system_prompt`,
+   one after the other. A variable listed in `knowledge_variables_appended` was added to the
    end of the prompt for you; move it if it reads better elsewhere.
 3. **One write to the agent at a time.** Every edit saves the whole agent, so
    two edits to it sent together keep only the later one. Wait for each result

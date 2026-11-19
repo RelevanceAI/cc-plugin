@@ -29,16 +29,17 @@ Agent Settings (persisted in DB)         Phantom Tools (generated at runtime)
 thinking_tool.enabled: true          →   thinking_tool
 memory.enabled: true                 →   add_agent_memory, delete_agent_memory
 tags: ["support", "vip"]             →   tag_agent_conversation
-custom_metadata: { fields... }       →   add_conversation_metadata,
+custom_metadata: { options... }      →   add_conversation_metadata,
                                          read_conversation_metadata
 is_scheduled_triggers_enabled: true  →   create_scheduled_trigger,
                                          delete_scheduled_trigger
-escalations: { email/slack config }  →   escalate_to_manager
+escalations: { email/slack config },
+  or a notification rule on escalated →  escalate_to_manager
 remote_mcp_configs: { key: {...} }   →   mcp_remote_tool_call,
                                          mcp_remote_resource_read
 ```
 
-When `relevance_get_agent_tools` returns tools, phantom tools are included with `is_phantom_tool: true`. But they should **never** be written back to the agent's `actions` array via `relevance_update_agent` or `relevance_attach_tools_to_agent`.
+`relevance_get_agent_tools` lists the phantom tools the agent has now, by `studio_id` (e.g. `escalate_to_manager`) with their `action_id`. A phantom tool whose setting is off is absent there and at run time alike: turn the setting on before referencing the tool in a prompt. They should **never** be written back to the agent's `actions` array via `relevance_update_agent` or `relevance_attach_tools_to_agent`.
 
 ## Complete Reference: All 14 Phantom Tools
 
@@ -82,9 +83,9 @@ Enable via `relevance_update_agent` with `patch: { memory: { enabled: true, memo
 | Field             | Value                                                                                    |
 | ----------------- | ---------------------------------------------------------------------------------------- |
 | **IDs**           | `add_conversation_metadata`, `read_conversation_metadata`                                |
-| **Enabled by**    | `custom_metadata` object with field definitions                                          |
+| **Enabled by**    | `custom_metadata.options`, the agent's metadata fields                                   |
 | **Purpose**       | Store and retrieve structured metadata on conversations (e.g., sentiment, customer tier) |
-| **How to enable** | Set `custom_metadata: { fields: [...] }` on the agent config                             |
+| **How to enable** | Add fields with the metadata fields tool: see [metadata-fields.md](metadata-fields.md)   |
 
 ### Scheduled Trigger Tools
 
@@ -99,14 +100,14 @@ Enable via `relevance_update_agent` with `patch: { is_scheduled_triggers_enabled
 
 ### Escalate to Manager Tool
 
-| Field             | Value                                                                                              |
-| ----------------- | -------------------------------------------------------------------------------------------------- |
-| **ID**            | `escalate_to_manager`                                                                              |
-| **Enabled by**    | `escalations` config with email addresses or Slack channels, or a notification rule on `escalated` |
-| **Purpose**       | Escalate conversations to human managers via email or Slack notifications                          |
-| **How to enable** | Set `escalations: { email: { emails: [...] } }` or `escalations: { slack: { channels: [...] } }`   |
+| Field             | Value                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **ID**            | `escalate_to_manager`                                                                                               |
+| **Enabled by**    | `escalations` config with email addresses or Slack channels, or a notification rule on `escalated`                  |
+| **Purpose**       | Escalate conversations to human managers via email or Slack notifications                                           |
+| **How to enable** | Add an `escalated` notification rule with `relevance_update_agent` ([notification-rules.md](notification-rules.md)) |
 
-`escalations` is blocked from modification via the tools — set it via the Relevance AI dashboard. See the **Blocked Fields** section below for why. An `escalated` notification rule can be added with `relevance_update_agent` ([notification-rules.md](notification-rules.md)), but never on an agent that has `escalations` set.
+To give an agent this tool, add a notification rule on `status_change` `["escalated"]` with the channel the notices should go to (an email address, Slack or Teams), as in [notification-rules.md](notification-rules.md). The rule is what the app's "Escalate to manager" toggle adds, and it turns the tool on. An agent that has `escalations` set already has the tool: don't add the rule there, because it takes over that agent's notices. `escalations` itself is blocked from modification via the tools (see **Blocked Fields** below).
 
 ### Remote MCP Tools
 
@@ -166,9 +167,9 @@ A common mistake when cleaning actions is deleting `params_schema`. This field I
 The following agent config fields are **blocked from modification** via `relevance_update_agent` and `relevance_create_agent` because they control phantom tool injection and can cause hard-to-reverse damage if set incorrectly:
 
 - `tags` — controls `tag_agent_conversation` phantom tool. **Not** a general-purpose metadata/labelling field.
-- `custom_metadata` — controls `add_conversation_metadata` / `read_conversation_metadata` phantom tools.
-- `escalations` — controls `escalate_to_manager` phantom tool.
+- `custom_metadata` — controls `add_conversation_metadata` / `read_conversation_metadata` phantom tools. Change it with the metadata fields tool where it's available: see [metadata-fields.md](metadata-fields.md).
+- `escalations` — controls `escalate_to_manager` phantom tool. To turn escalation on, add an `escalated` notification rule instead (see the Escalate to Manager Tool section).
 - `remote_mcp_configs` — controls `mcp_remote_tool_call` phantom tool. Change it with the MCP server tools instead: see [mcp-servers.md](mcp-servers.md).
 - `capabilities` — controls the computer sandbox tools.
 
-These fields are silently stripped before the patch is applied. Apart from MCP servers, modify them in the Relevance app.
+These fields are stripped before the patch is applied, or refused with a pointer to their dedicated tool where one is available. Without a dedicated tool, modify them in the Relevance app.

@@ -37,6 +37,8 @@ At the top of the market the published benchmarks no longer separate models — 
 
 Default upward as a task gets harder or more consequential. A cheap model on a critical task is a false economy — one wrong answer costs more than the tokens it saved.
 
+This is for choosing a model for a new or reshaped task. Moving an agent that already runs to a more expensive model, or raising its reasoning effort, to fix a failure is a diagnosis: `relevance-diagnostics` sets when the model is the fix, and you say what the change costs.
+
 - **Complex or critical — step up**, even at several times the price. Money movement, customer-facing commitments, unattended writes, long unsupervised runs, anything no human will check before it lands.
 - **Simple, high volume, or cheap to be wrong — step down.** Routing behind a validator, extraction the next step rejects, classification at scale.
 

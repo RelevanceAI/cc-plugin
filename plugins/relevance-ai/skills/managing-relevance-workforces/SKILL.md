@@ -125,6 +125,8 @@ The workforces lifecycle mirrors agents (see [`../managing-relevance-agents/SKIL
 
 ## Quick Start: Create Workforce
 
+A workforce is never the first thing to run. Build its first agent, run it on the user's own example and show what it produced, then create the workforce and chain the next agent.
+
 1. **Create the workforce** — saves to a draft (does NOT publish). Omitting `edges` produces a linear chain with forced-handover edges between the agents in order. Omitting `triggers` produces a single `manual` trigger (the workforce runs only when `relevance_trigger_workforce` is called):
 
    ```

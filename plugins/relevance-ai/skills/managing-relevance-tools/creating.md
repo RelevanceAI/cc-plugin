@@ -23,7 +23,7 @@ relevance_create_tool({
   state_mapping: { ... }
 })
 // Returns { studio_id: "auto-generated-uuid", url }
-// Tool is saved as a DRAFT — not yet live. Call relevance_publish_tool to publish.
+// Tool is saved as a DRAFT. Call relevance_publish_tool to publish it.
 ```
 
 ### Option 2: Create from Transformation
@@ -32,21 +32,23 @@ Fastest way - auto-generates params_schema, state_mapping, and bindings:
 
 ```typescript
 relevance_create_tool_from_transformation({
-  transformationId: 'serper_google_search',
+  transformation_id: 'serper_google_search',
   title: 'Google Search', // optional custom title
   description: 'Search the web', // optional custom description
 });
-// Searches existing tools first to avoid duplicates
 // Returns { studio_id, tool, wasExisting: boolean }
+// A new tool is saved as a DRAFT. Call relevance_publish_tool to publish it.
+// If one of the most recently updated tools already uses this transformation, nothing is
+// created: that tool comes back unchanged with wasExisting: true.
 
-// Force create even if duplicate exists:
+// Create a new tool even if one already uses the transformation:
 relevance_create_tool_from_transformation({
-  transformationId: 'serper_google_search',
-  forceCreate: true,
+  transformation_id: 'serper_google_search',
+  force_create: true,
 });
 ```
 
-> Validate a newly created tool that only reads with `relevance_trigger_tool` (then `relevance_poll_tool_result`). A step writes when it sends or posts anything, or adds, changes or deletes data anywhere, a knowledge table included, since it may hold live data. Judge a step by what it does, not its name: a find-or-create step writes, and so can a search sent as a POST. A step you can't classify counts as one that writes. Never run something that writes just to try it, and that includes checking a fix: trigger the agent or workforce with `simulate: true`, naming in `live_action_ids` only tools that read, so every other tool returns a stand-in instead of running; or exercise the write in an eval that stands in for it; or run it only once the user has agreed to that specific run and named where it may write, such as a test recipient. After any run, a finished tool call whose `output_source` is missing or `tool-run` ran for real: say which of those sent or changed something, and where. A stand-in shows what it would send, not that it arrives, so call that write unproven. Running a tool directly has no `simulate` option, so for a tool that writes, test its read steps with `relevance_run_transformation`, and set up the eval's stand-in as [relevance-evals](../relevance-evals/simulation.md) describes.
+> Validate a newly created tool that only reads with `relevance_trigger_tool` (then `relevance_poll_tool_result`). A step writes when it sends or posts anything, or adds, changes or deletes data anywhere, a knowledge table included, since it may hold live data. Judge a step by what it does, not its name: a find-or-create step writes, and so can a search sent as a POST. A step you can't classify counts as one that writes. Never run something that writes just to try it, and that includes checking a fix: trigger the agent or workforce with `simulate: true`, naming in `live_action_ids` only tools that read, so every other tool returns a stand-in instead of running; or exercise the write in an eval that stands in for it; or run it only once the user has agreed to that specific run and named where it may write, such as a test recipient. After any run, a finished tool call whose `output_source` is missing or `tool-run` ran for real: say which of those sent or changed something, and where. A stand-in shows what it would send, not that it arrives, so call that write unproven. Before telling the user that a write which ran for real changed a record, read the record back and check it holds what was meant: a success field or `status` the tool set itself is not proof. Running a tool directly has no `simulate` option, so for a tool that writes, test its read steps with `relevance_run_transformation`, and set up the eval's stand-in as [relevance-evals](../relevance-evals/simulation.md) describes.
 
 ## Updating Existing Tools
 
@@ -397,13 +399,13 @@ All indices are 0-based, and each one refers to the step array as it stands afte
 - `{ op: 'remove', step_index }` — remove a single step.
 - `{ op: 'move', from_index, to_index }` — reorder a step.
 
-Pass `output` / `output_schema` alongside `ops` to set the tool's outputs in the same save (same semantics as `relevance_set_tool_output`). The response echoes each added or updated step under `edited` — its final index, `name`, `transformation`, `if`, `output` and a summary of its `params`. Confirm the edit from that echo before running the tool. Long text and nested values (such as a loop's inner steps) are echoed as `<…>` markers; read those back with `relevance_get_tool`.
+Pass `output` / `output_schema` alongside `ops` to set the tool's outputs in the same save (same semantics as `relevance_set_tool_output`). The response echoes each added or updated step under `edited` — its final index, `name`, `transformation`, `if`, `output` and a summary of its `params`. Confirm the edit from that echo before running the tool. Long text and nested values (such as a loop's inner steps) are echoed as `<…>` markers; read those back with `relevance_get_tool({ studio_id, version: 'draft', step_indices: [<echoed index>] })`.
 
 For a single edit, the singular tools remain: `relevance_add_tool_step({ studio_id, step, position? })`, `relevance_update_tool_step({ studio_id, step_index, patch })`, `relevance_remove_tool_step({ studio_id, step_index })` and `relevance_move_tool_step({ studio_id, from_index, to_index })` behave like the matching op.
 
 > **⚠️ Never issue several step-edit calls to the same tool at once — the last save wins.** Each call loads the draft, edits it and saves the whole draft, so concurrent calls silently discard each other's edits. Put every edit to one tool in one `relevance_update_tool_steps` call, or make singular calls one after another.
 
-Always call `relevance_get_tool` first to confirm step indices in the current draft. Out-of-range indices throw with the current step count in the error message, so the LLM can recover.
+Always call `relevance_get_tool` with `version: 'draft'` first to confirm step indices in the current draft (without it you read the published version, whose steps can differ); on a long tool, `step_indices: []` returns just the `step_outline`, and `step_indices: [3, 4]` adds those steps whole under `selected_steps`. Out-of-range indices throw with the current step count in the error message, so the LLM can recover.
 
 ## Renaming or restructuring a step (update references!)
 
@@ -411,7 +413,7 @@ Always call `relevance_get_tool` first to confirm step indices in the current dr
 
 **Whenever you change a step's `name`, or change the keys in its `output` mapping, fix every reference before running the draft — later steps and the tool's `output` map in the same `relevance_update_tool_steps` call, `state_mapping` with `relevance_update_tool` right after:**
 
-1. **Find every reference.** Call `relevance_get_tool` and scan, for the old name/field:
+1. **Find every reference.** Call `relevance_get_tool` with `version: 'draft'` and scan, for the old name/field (on a tool too long to read whole, read the later steps a few at a time with `step_indices`):
    - every **later** step's `params` (templates like `{{steps.<old_name>.output.…}}`),
    - the tool-level runtime `output` map (set via `relevance_set_tool_output`),
    - `state_mapping` values (bare JSONPaths like `steps.<old_name>.output.…`, no curly braces).
@@ -521,7 +523,7 @@ Work down this ladder and stop at the first rung that fits — most tools need n
 2. **Third-party API — prefer a transformation with built-in `authorization_config`** (`hubspot_api_call`, `slack_api_call`, …). It resolves auth server-side, so the tool definition holds nothing.
 3. **OAuth account** — a `params_schema` input with `metadata.content_type: "oauth_account"`, passed to the step as `oauth_account_id: "{{params.<name>}}"`. See [oauth.md](oauth.md).
 4. **API key input** — a `params_schema` input with `metadata.content_type: "api_key"` and `metadata.project_key_name`. This renders the key-vault picker, not a free-text box.
-5. **`{{secrets.chains_*}}`** — last resort, for a key the user has already stored in the project themselves.
+5. **`{{secrets.chains_*}}`** — last resort, for a password or a key no provider covers. If the project doesn't have it yet, choose a name (`acme_password`), write `{{secrets.chains_acme_password}}` into the step, and tell the user to add a key with exactly that name under **Custom API keys** on the Integrations page (the `integrations_url` from `relevance_check_api_key_availability`). The page adds the `chains_` prefix itself, so give them the name without it.
 
 > **❌ Never store a credential as a param `default`, and never inline a raw key into a code step.** `hidden` is not a supported schema field — it is silently ignored, so nothing is hidden. A credential in a param default is sent to the model on every turn, written to run history, readable by anyone with viewer access to the project, exposed by public share links, and copied on clone or marketplace publish. Unlike `{{secrets.*}}`, it is never redacted from step output.
 

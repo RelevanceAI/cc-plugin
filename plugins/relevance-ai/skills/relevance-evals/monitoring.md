@@ -15,8 +15,9 @@ Performance dashboards monitor live production traffic by sampling conversations
 
 1. The dashboard is enabled with `sample_rate ∈ (0, 1]` on an agent or workforce.
 2. Each time a production task settles into a status that passes the dashboard's `task_status` filter, it is sampled with probability `sample_rate`. An agent conversation settles at the end of every run, so a multi-turn conversation can be scored once per turn.
-3. Each sampled task is scored against the dashboard's checks by the LLM judge.
-4. Scores feed the timeseries chart and the per-test table — surfaced via `relevance_get_performance_dashboard_timeseries` and `relevance_list_performance_dashboard_runs`.
+3. If the dashboard has an `evaluation_delay_minutes`, a sampled task waits that long after it stops running before it is scored. If the task runs again while it waits, the wait starts over. Until then its run has status `delayed`, and `due_at` says when it will be scored.
+4. Each sampled task is scored against the dashboard's checks by the LLM judge.
+5. Scores feed the timeseries chart and the per-test table — surfaced via `relevance_get_performance_dashboard_timeseries` and `relevance_list_performance_dashboard_runs`.
 
 ### Which statuses to score (`task_status`)
 
@@ -24,6 +25,10 @@ Leave `task_status` unset to score every status a task settles in. When you set 
 
 - **Agent:** a run ends `idle`. A conversation is `completed` only once someone marks it complete, so `['completed']` alone scores only those. For finished runs use `['idle', 'completed']`.
 - **Workforce:** a task ends `completed` (or `execution-limit-reached`) by itself.
+
+### Delaying scoring (`evaluation_delay_minutes`)
+
+Use a delay when a task's outcome only shows later, for example a customer reply or a follow-up step. The longest delay is 30 days (43200 minutes). Changing the delay does not move a task that is already waiting until the task runs again. If the save is rejected with "not available yet", leave the delay at 0.
 
 ### Setup
 
@@ -60,14 +65,14 @@ relevance_create_performance_dashboard(
 
 ### Performance Dashboard Tools
 
-| Tool                                             | Description                                                                                                                           |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `relevance_create_performance_dashboard`         | Create a dashboard from existing checks (`check_ids`, max 50), `sample_rate`, `enabled`, and optional `task_status`                   |
-| `relevance_list_performance_dashboards`          | List dashboards for an agent or workforce (returns each dashboard's checks, sample rate, enabled flag, status filter)                 |
-| `relevance_update_performance_dashboard`         | Update dashboard **metadata** (name / sample_rate / enabled / task_status) using patch semantics; `task_status: []` clears the filter |
-| `relevance_delete_performance_dashboard`         | Delete a dashboard (loses historical runs; underlying checks are NOT deleted)                                                         |
-| `relevance_get_performance_dashboard_timeseries` | Score timeseries for a dashboard between two dates                                                                                    |
-| `relevance_list_performance_dashboard_runs`      | List eval runs from a dashboard, optionally filtered to a single check and/or failed-only                                             |
+| Tool                                             | Description                                                                                                                                                      |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `relevance_create_performance_dashboard`         | Create a dashboard from existing checks (`check_ids`, max 50), `sample_rate`, `enabled`, and optional `task_status` and `evaluation_delay_minutes`               |
+| `relevance_list_performance_dashboards`          | List dashboards for an agent or workforce (returns each dashboard's checks, sample rate, enabled flag, status filter, delay and delayed task count)              |
+| `relevance_update_performance_dashboard`         | Update dashboard **metadata** (name / sample_rate / enabled / task_status / evaluation_delay_minutes) using patch semantics; `task_status: []` clears the filter |
+| `relevance_delete_performance_dashboard`         | Delete a dashboard (loses historical runs; underlying checks are NOT deleted)                                                                                    |
+| `relevance_get_performance_dashboard_timeseries` | Score timeseries for a dashboard between two dates                                                                                                               |
+| `relevance_list_performance_dashboard_runs`      | List eval runs from a dashboard, optionally filtered to a single check and/or failed-only                                                                        |
 
 ### Performance Dashboard Check Management (attach / detach existing checks)
 
@@ -144,7 +149,7 @@ When a dashboard has an alarm configured, degradation is reported automatically 
 
 ### Alarms — get told instead of remembering to look
 
-Alarms notify email, Slack, or Microsoft Teams when one dashboard check or its overall score degrades. They attach to agents or workforces, never individual tools. Offer one after setting up a dashboard, or when a fetched agent/workforce has a dashboard but `quality.alarms.evals` counts no `enabled` or `paused` alarm; never re-offer one that exists, and offer to resume one when all are paused. Use the Relevance app UI if alarm tools are unavailable.
+Alarms notify email, Slack, or Microsoft Teams when one dashboard check or its overall score degrades. They attach to agents or workforces, never individual tools. After setting up a dashboard, or when a fetched agent/workforce has a dashboard but `quality.alarms.evals` counts no `enabled` or `paused` alarm, say once that the dashboard tells nobody without an alarm, and create one when the owner agrees; never raise one that exists, and offer to resume one when all are paused. Use the Relevance app UI if alarm tools are unavailable.
 
 Create, change and remove them with `relevance_create_alarm`, `relevance_update_alarm` and `relevance_delete_alarm`, passing `type: "evals"` with the resource and (to change one) its `alarm_id`. The type is required and is never inferred. Read alarms with `relevance_list_alarms` and `relevance_get_alarm`, passing the resource and (for one alarm) its `alarm_id`. These reads include visible eval, trigger, task-error, pending-approval and escalation alarms; use `config.source_config` to identify the kind. A fetched agent/workforce's `quality.alarms` already counts each kind you can see (`evals`, `triggers`, `task_errors`, `task_approvals`, `task_escalations`) as `enabled` and `paused`, plus how many enabled ones `auto_diagnose`, so list only when you need a specific alarm. Like the list, it counts only alarms visible to you.
 
@@ -167,6 +172,7 @@ An alarm reports a rate or a score. To tell someone about each task as it happen
 - `sample_rate: 0` — bump up; `0` disables evaluation entirely.
 - No live traffic on the agent or workforce in the time range — verify it's actually being invoked in production.
 - Date range too narrow / too old — widen it.
+- `evaluation_delay_minutes` above 0: recent tasks are still waiting to be scored. The dashboard's `delayed_task_count` and `next_due_at` say how many and when.
 - An agent dashboard whose status filter (`filters.task_status`, or the older `filters.conversation_status`) has `completed` but not `idle` — agent runs end `idle`, so it only scores conversations someone marked complete. Offer to add `idle` or clear the filter (`task_status: []`).
 
 ### "A performance dashboard must have at least one check"

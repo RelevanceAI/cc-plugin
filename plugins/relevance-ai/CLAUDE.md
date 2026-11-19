@@ -154,4 +154,5 @@ Detailed guides for Relevance AI operations are in `skills/`:
 | `relevance-task-ops/`            | Reading the Task Ops (monitor) page — errored / escalated / awaiting-approval tasks                |
 | `relevance-llm-models/`          | Picking an LLM model for an agent, tool step, or workforce node — and the config traps            |
 | `relevance-task-priorities/`     | Task-priority tiers, for when a resource is starved rather than failing                            |
+| `relevance-docs/`                | Finding where a setting or feature is in the app, from relevanceai.com/docs                        |
 | `relevance-slide-builder/`       | Slideshows, slideshow templates, versions, and brand kits                                          |

@@ -64,6 +64,8 @@ with a `_v2` suffix (prefer the highest version). A representative sample:
 | Zendesk                               | `zendesk_native_api_call`                                                                                                       |
 | Google Sheets / Drive / Docs / Slides | `google_sheets_native_api_call`, `google_drive_native_api_call`, `google_docs_native_api_call`, `google_slides_native_api_call` |
 
+The `google_{sheets,drive,docs,slides}_native_*` steps, these api_call steps included, connect through a `google_drive_native` account.
+
 **To find one for any provider**, browse the integration tag and read the `native` results:
 `relevance_list_transformations({ integration: "<Provider>" })`.
 
@@ -191,10 +193,9 @@ correct for their own step and wrong for the other:
 
 ## Browser Automation
 
-| Name           | Description                                                                         |
-| -------------- | ----------------------------------------------------------------------------------- |
-| `airtop_*`     | Airtop browser automation - click, type, scroll, query page, take screenshots, etc. |
-| `browseruse_*` | Browser Use automation - similar capabilities to Airtop                             |
+| Name                                        | Description                                                                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `browser_*` (all except `browser_api_call`) | AI Browser - create window, load URL, click, type, scroll, query or monitor the page, screenshot, download a file, close window |
 
 ## Document Processing
 
@@ -234,13 +235,12 @@ correct for their own step and wrong for the other:
 
 ## Other Integrations
 
-| Name                     | Description                                       |
-| ------------------------ | ------------------------------------------------- |
-| `google_sheets_api_call` | Read/write Google Sheets                          |
-| `google_docs_action`     | Create/edit Google Docs                           |
-| `confluence_native_*`    | Get, create and update pages; blog posts; search  |
-| `zoom_api_call`          | Zoom API operations                               |
-| `recallai_*`             | Meeting bot operations (join, record, transcribe) |
+| Name                  | Description                                       |
+| --------------------- | ------------------------------------------------- |
+| `google_docs`         | Create/edit Google Docs, via a `google` account   |
+| `confluence_native_*` | Get, create and update pages; blog posts; search  |
+| `zoom_api_call`       | Zoom API operations                               |
+| `recallai_*`          | Meeting bot operations (join, record, transcribe) |
 
 ---
 
@@ -253,6 +253,7 @@ correct for their own step and wrong for the other:
 | Analyze images                                                             | `prompt_completion_vision`                                                        |
 | Search your docs                                                           | `search` (needs a `knowledge:<id>` source)                                        |
 | Scrape a website                                                           | `browserless_scrape` or `firecrawl`                                               |
+| Read a Google Doc, Sheet, Slides deck or Drive file from its link          | `google_drive_native_download_file` with an export `mime_type`; never a scrape    |
 | Advanced scraping (social, e-commerce)                                     | `run_apify_dynamic`                                                               |
 | Generate video/image/audio                                                 | `run_replicate_dynamic`                                                           |
 | Send LinkedIn messages                                                     | `linkedin_action` (Unipile)                                                       |

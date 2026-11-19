@@ -166,10 +166,12 @@ call — the metadata gets the count once rows are added.
 }
 ```
 
-If a row has a string field longer than 500 chars, it's truncated in this
-summary. The full text is still in storage; fetch with
-`relevance_get_knowledge_row` if you need it untruncated (note: that tool
-also summarizes — full text only via the underlying API).
+If a row has a string field longer than 500 chars, it's cut in this
+summary and ends in `…[truncated]`. The full text is still in storage, and
+`relevance_get_knowledge_row` may return it, so read the row there before
+writing one of its fields back. Never write a value ending in `…[truncated]`
+back: `relevance_update_knowledge_rows` merges, so send only the fields you
+are changing and leave that field out.
 
 ## Common patterns
 

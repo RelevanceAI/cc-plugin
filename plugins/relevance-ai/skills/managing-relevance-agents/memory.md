@@ -11,6 +11,8 @@ A guide to understanding and using the Agent Memory feature in Relevance AI.
 
 Agent Memory enables AI agents to persist and recall information across conversations. This creates more personalized and context-aware interactions by allowing agents to "remember" important details about users, preferences, and facts.
 
+The app's Memory tab also holds the agent's metadata fields, which label each run (a count, a yes/no flag, a category) rather than remembering facts across conversations. For those, see [metadata-fields.md](metadata-fields.md).
+
 ### Key Benefits
 
 - **Personalization**: Agents remember user preferences and tailor responses accordingly

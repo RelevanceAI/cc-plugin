@@ -23,9 +23,6 @@ relevance_create_workforce({
       source: { kind: 'agent', index: 0 },
       target: { kind: 'tool', index: 0 },
       edge_type: 'tool-call',
-      tool_input_config: {
-        domain: { input_source: { type: 'auto' } },
-      },
     },
     {
       source: { kind: 'tool', index: 0 },
@@ -50,7 +47,7 @@ If the user describes a tool that doesn't exist yet, create it first via `releva
 
 ### `tool_input_config` — wiring inputs into a tool
 
-Tool nodes receive inputs via the **incoming edge**, not on the node itself. Each input is mapped to one of two sources:
+Tool nodes receive inputs via the **incoming edge**, not on the node itself. On a `forced-handover` edge into a tool, each input is mapped to one of two sources:
 
 ```typescript
 tool_input_config: {
@@ -60,20 +57,24 @@ tool_input_config: {
 }
 ```
 
-- `manual` — the upstream agent (or whoever connected the edge) provides the value at runtime, either as a fixed string in `default_values` or because the orchestrating LLM is filling it in.
-- `auto` — the value is sourced automatically from the upstream node's output / scratchpad. Use when the tool's input maps 1:1 to something the previous node produced.
+- `manual` — the value comes from the same edge's `default_values`: a fixed value, or a `{{nodes.<source node_id>.<field>}}` reference to the upstream node's output.
+- `auto` — an LLM fills the value in from what the upstream node produced. Inputs with no entry are filled the same way.
 
-Both forms are loose passthrough at the tool boundary; the backend re-validates against the tool's `input_schema` when the workforce saves. To find the parameter names, fetch the tool: `relevance_get_tool({ tool_id })` returns the tool's `input_schema`.
+On a `tool-call` edge from an agent, the run doesn't read `tool_input_config`: each `default_values` entry is a fixed input (no `{{nodes...}}` references), and the calling agent fills in the rest.
+
+To find the parameter names, fetch the tool: `relevance_get_tool({ tool_id })` returns the tool's `input_schema`.
+
+A `trigger → tool` edge takes no inputs: an LLM fills every input of the tool from the trigger's message. Put the values in that message, or connect the trigger to an agent and set the inputs on the `agent → tool` edge. Give each edge in the table below only the fields its row lists: an edge does not keep a field it can't carry.
 
 ### Valid edges to/from tool nodes
 
-| Edge               | edge_type                        | Special fields                                                                          |
-| ------------------ | -------------------------------- | --------------------------------------------------------------------------------------- |
-| `trigger → tool`   | `forced-handover`                | none                                                                                    |
-| `agent → tool`     | `tool-call` or `forced-handover` | `tool_input_config`, `action_behaviour`, `prompt_for_when_to_use`                       |
-| `tool → agent`     | `forced-handover`                | `threading_behavior`, `trigger_message_prefix` (prepended to the agent's input message) |
-| `tool → tool`      | `forced-handover`                | `tool_input_config`                                                                     |
-| `tool → condition` | `forced-handover`                | none                                                                                    |
+| Edge               | edge_type                        | Special fields                                                                                                                                 |
+| ------------------ | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trigger → tool`   | `forced-handover`                | none                                                                                                                                           |
+| `agent → tool`     | `tool-call` or `forced-handover` | `default_values`; forced-handover also `tool_input_config`; tool-call also `action_behaviour`, `prompt_for_when_to_use`, `agent_decide_prompt` |
+| `tool → agent`     | `forced-handover`                | `threading_behavior`, `trigger_message_prefix` (prepended to the agent's input message)                                                        |
+| `tool → tool`      | `forced-handover`                | `tool_input_config`, `default_values`                                                                                                          |
+| `tool → condition` | `forced-handover`                | none                                                                                                                                           |
 
 ## Condition Nodes
 
@@ -197,13 +198,13 @@ Instead of an LLM, a condition node can judge its prompt-based edges with a **de
 
 ### Valid edges to/from condition nodes
 
-| Edge                  | edge_type         | Required                                          |
-| --------------------- | ----------------- | ------------------------------------------------- |
-| `trigger → condition` | `forced-handover` | none                                              |
-| `agent → condition`   | `forced-handover` | none                                              |
-| `tool → condition`    | `forced-handover` | none                                              |
-| `condition → agent`   | `forced-handover` | `condition` payload                               |
-| `condition → tool`    | `forced-handover` | `condition` payload, optional `tool_input_config` |
+| Edge                  | edge_type         | Required                                                            |
+| --------------------- | ----------------- | ------------------------------------------------------------------- |
+| `trigger → condition` | `forced-handover` | none                                                                |
+| `agent → condition`   | `forced-handover` | none                                                                |
+| `tool → condition`    | `forced-handover` | none                                                                |
+| `condition → agent`   | `forced-handover` | `condition` payload                                                 |
+| `condition → tool`    | `forced-handover` | `condition` payload, optional `tool_input_config`, `default_values` |
 
 A condition node cannot connect to another condition node directly — chain them through an agent or tool node if you need multi-stage routing.
 
@@ -301,7 +302,6 @@ await relevance_create_workforce({
       source: { kind: 'agent', index: 0 },
       target: { kind: 'tool', index: 0 },
       edge_type: 'tool-call',
-      tool_input_config: { domain: { input_source: { type: 'auto' } } },
     },
     {
       source: { kind: 'tool', index: 0 },

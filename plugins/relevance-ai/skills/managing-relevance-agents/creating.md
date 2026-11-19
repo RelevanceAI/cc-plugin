@@ -59,7 +59,7 @@ Agents have built-in capabilities enabled through settings — **not** by adding
 | `memory: { enabled: true, memory_level: "user" }` | Persistent memory across conversations |
 | `tags: ["support", "sales"]`                      | Conversation tagging                   |
 | `is_scheduled_triggers_enabled: true`             | Agent can schedule future actions      |
-| `escalations: { email: { emails: [...] } }`       | Escalate to human managers             |
+| an `escalated` rule in `notifications_config`     | Escalate to human managers             |
 
 **See [phantom-tools.md](phantom-tools.md) for the full reference** — how to enable each one, what they do, and critical gotchas about never putting them in `actions`.
 
@@ -197,7 +197,7 @@ relevance_trigger_agent({
 
 ### Step 6: Ask the User, Then Publish
 
-After the user has reviewed the draft and confirmed they want it live, publish it.
+Until an agent is first published, every run uses its draft. After that, its draft runs in only four places: your own `relevance_trigger_agent` runs of it, evals pinned to its `draft_version_id`, API calls that name the draft, and a chat on the agent's page in the builder, which runs the draft the builder has open, but only for some project roles, so never promise that one. The user's chats in the Chat app, triggers, schedules, bulk runs, the workforces it belongs to and API calls that name no version all start its published version, once it has one. So until you publish, never tell the user a change works in their chats: say it is saved as a draft, and offer to run the draft for them. Publish when the user wants it live, or when the next step needs the live version. Don't put the question beside the first test run. After the user has reviewed the draft and confirmed they want it live, publish it.
 `relevance_publish_agent` is irreversible, so confirm in chat before calling it.
 
 Always pass a concise `version_description` (and `version_name`) — a clear, one-line summary of what changed and why, easy to understand. This is the version-history trail; reuse the summary you gave the user and never leave it blank.
@@ -216,6 +216,8 @@ relevance_publish_agent({
 Before creating a new agent, look at how similar working agents are configured. Run `relevance_list_agents`, then `relevance_get_agent` on one that already uses the tools you want — read the `region` field on each entry of its `actions` array. This is CRITICAL: tools must be attached with the **region the tool lives in**, which is often different from your project's region. The same fetch also surfaces working `action_behaviour` patterns and system-prompt structure to copy.
 
 ## Agent Lifecycle
+
+Reach step 5 on the narrowest version first: the one path a single real output needs, run on the user's own example and shown to them. The other tools, the edge cases and what kicks it off come after they have seen it run.
 
 ```text
 1. Create basic agent (relevance_create_agent — saves to DRAFT only)
@@ -263,4 +265,4 @@ After creating an agent that only reads and replies, test it with `relevance_tri
 - [ ] Model set for the agent's shape (a tool loop is a shape), not left on the default by accident
 - [ ] Each tool that only reads validated with `relevance_trigger_tool` (then `relevance_poll_tool_result`); each tool that writes checked in an eval with a stand-in for it
 - [ ] Agent tested with `relevance_trigger_agent`
-- [ ] Triggers configured (if needed)
+- [ ] Triggers configured (if needed, once the user has seen it run)

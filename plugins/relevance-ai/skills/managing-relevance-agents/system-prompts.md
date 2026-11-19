@@ -44,7 +44,7 @@ Pick the approach by size (check `system_prompt_line_count` from `relevance_get_
 - **Large prompt** → don't pull the whole thing into context. Use the dedicated tools, which fetch and mutate the prompt server-side:
   - `relevance_search_agent_system_prompt` — grep for the section you care about (`pattern` is a JS regex); returns line numbers.
   - `relevance_read_agent_system_prompt` — read a line-numbered window (`offset_line` / `limit_lines`, like `cat -n`). `limit_lines: 0` returns just the size.
-  - `relevance_edit_agent_system_prompt` — change a section by string replacement: each `edits[].old_string` must match the current draft **verbatim** and be **unique** (add surrounding context, or set `replace_all: true`). Pass `expected_line_count` (the `total_lines` you last read) to be told if the prompt changed underneath you. Saves to the **draft** — publish separately.
+  - `relevance_edit_agent_system_prompt` — change a section by string replacement: each `edits[].old_string` must match the current draft **verbatim** and be **unique** (add surrounding context, or set `replace_all: true`). Pass `expected_line_count` (the `total_lines` you last read) to be told if the prompt changed underneath you. Saves to the **draft** — publish separately. Text a text agent variable's `{{name}}` brings into the prompt lives in the variable, not the prompt: edit it with `variable: "<name>"` (see [variables.md](variables.md)).
 
 Typical large-prompt edit loop: `search` to locate → `read` the surrounding lines → `edit` with a unique `old_string` → `read` again to confirm. You never send the whole prompt back.
 
@@ -107,13 +107,15 @@ When the user asks a research question, search for sources and extract content.
 ```typescript
 // Fetch the actual action_ids
 const tools = await relevance_get_agent_tools({ agent_id: '...' });
-// Returns: { chains: [{ studio_id: "my-tool", action_id: "abc123def456" }] }
+// Returns: { tools: [{ studio_id: "my-tool", action_id: "abc123def456", ... }], action_id_map: { "my-tool": "abc123def456" } }
 
 // Use in system prompt:
 system_prompt: `Use {{_actions.abc123def456}} to search...`;
 ```
 
 **Important:** The `action_id` you set in the actions array is NOT used by the UI. You must fetch the backend-generated IDs.
+
+Take each agent's pill ids from that agent's own tool list. A built-in tool such as Escalate to manager is listed only while its setting is on ([phantom-tools.md](phantom-tools.md)), so seeing it on one agent doesn't mean another has it: turn it on there first. A pill naming a tool the agent doesn't have reaches it as `undefined`. A write result names such pills in `pills_without_tool`; it can't check an agent with an MCP server.
 
 ### Example: Pills Inline in a Workflow
 

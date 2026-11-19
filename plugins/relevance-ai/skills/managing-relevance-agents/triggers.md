@@ -24,6 +24,10 @@ refused for the same reason, so it is not the way to give yourself a standing in
 standing work on a user-owned agent, or use whatever first-class scheduling your harness gives you
 for recurring work of your own.
 
+## Before You Create One: The Tools' Accounts
+
+A triggered run can't use an account private to the user. Before creating the trigger, check the accounts its runs will use, as in [Accounts in triggered runs](../managing-relevance-tools/oauth.md#accounts-in-triggered-runs).
+
 ## Choosing the Right Trigger Pattern
 
 Triggers **feed the agent's unit of action** — delivering work so the agent can act on it. The two main patterns are **event-driven** (react when something happens) and **scheduled** (run on a timer). Both are valid — the right choice depends on your data source and what the agent does.
@@ -389,13 +393,14 @@ relevance_create_trigger({
 
 ### Slack Trigger
 
-Listens for messages in specific Slack channels.
+Listens for messages in the Slack channels and DMs it lists, and nowhere else: a config with no `channels` is rejected.
 
 **Setup steps:**
 
 1. Choose the Slack account as in [Choosing the account](../managing-relevance-tools/oauth.md#choosing-the-account): `relevance_list_oauth_accounts({ provider: 'slack' })`
-2. Resolve channel names to IDs: `relevance_list_slack_channels({ oauth_account_id: "..." })`
+2. Resolve channel names to IDs: `relevance_list_slack_channels({ oauth_account_id: "..." })` (`channel_type: 'dm'` for DMs)
 3. Create the trigger
+4. Tell the user to add the Relevance AI app to each channel (`/invite` it in the channel). Until it is a member, the trigger gets no messages from that channel.
 
 ```typescript
 relevance_create_trigger({
@@ -453,7 +458,18 @@ relevance_create_trigger({
 
 ### Teams Trigger
 
-Listens for messages in Microsoft Teams channels.
+Listens for messages in the Microsoft Teams conversations it names, and nowhere else. Name at least one, or the config is rejected:
+
+- `channels`: Teams channel IDs.
+- `groups`: group chats, `[{ id }]`.
+- `users`: 1:1 chats with the bot, `{ allow_all_users: true }` for anyone in the tenant, or `{ allow_all_users: false, users: [{ id }] }` for chosen people. Set it only when the user wants 1:1 chats, not to stand in for a channel.
+
+List channel IDs with `relevance_run_transformation` on the trigger's account: `microsoft_teams_native_list_teams`, then `microsoft_teams_native_list_channels` for each team. `microsoft_teams_native_list_chats` lists chats: leave `chatType: "oneOnOne"` ones out of `groups`, since 1:1 chats go through `users`. If those fail, ask the user for the IDs.
+
+Tell the user what the trigger still needs from them:
+
+- The Relevance AI bot must be added to every channel and group chat the trigger listens in. It gets no messages from a conversation the bot isn't in.
+- In channels and group chats, a message only starts a task when it @mentions the bot.
 
 ```typescript
 relevance_create_trigger({
@@ -462,7 +478,7 @@ relevance_create_trigger({
   trigger_config: {
     oauth_account_id: 'teams-oauth-account-uuid',
     tenant_id: 'microsoft-tenant-id',
-    channels: [],
+    channels: ['19:...@thread.tacv2'], // and/or groups, users
     keywords: {
       values: [],
       config: { case_sensitive: false },
@@ -493,6 +509,8 @@ Every frequency except `custom_cron` requires `hour` (HH:mm) **and** `timezone` 
 | `no_repeat`   | `hour`, `timezone`, `date`                  | One-time execution (`date`: YYYY-MM-DD, must be in the future)                                                |
 | `custom_cron` | `cron_expression`                           | 6-field cron expression (minute intervals min 10). `hour` not required; `timezone` optional (defaults to UTC) |
 
+**`hour` has no effect on when a `minutely` or `hourly` schedule runs**, in a recurring `schedule` or a tool trigger's `run_schedule`. Its runs fall every N minutes (or hours) counted from when it was saved, not from `hour`, so never promise a start time for one. For runs at set clock times, use `custom_cron` (`0/10 * * * ? *` runs at :00, :10, :20 and so on).
+
 Every frequency except `no_repeat` also takes an optional `end_date` (YYYY-MM-DD): the last day the schedule runs, in its timezone (UTC when it has none). On the first run after that day the trigger turns itself off instead of starting a task, and it stays off until someone sets a later `end_date` (or removes it) and resumes it. Set one whenever the schedule only matters until something happens: see [Waiting for one thing to happen](#waiting-for-one-thing-to-happen).
 
 **Example: Every 15 minutes**
@@ -507,7 +525,7 @@ relevance_create_trigger({
     schedule: {
       frequency: 'minutely',
       minute_interval: '15', // "10", "15", "30", "45"
-      hour: '09:00', // Required even for minutely
+      hour: '09:00', // Required even for minutely, but has no effect on when it runs
       timezone: 'UTC',
     },
   },
@@ -716,6 +734,8 @@ relevance_create_trigger({
   },
 });
 ```
+
+The response's `webhook_url` is where the source sends its events, as an HTTP POST with a JSON body: give it to the user to paste into Zapier, Make, Power Automate or their CRM workflow. `relevance_list_agent_triggers` and `relevance_get_trigger` (`configuration.webhook_url`) return it again later; never build it yourself. Anyone holding the URL can start tasks on the agent, so give it only to the person setting up the source: not in a shared channel or document, and not in a prompt, tool or knowledge table. To revoke it, delete the trigger and create a new one, then update the source.
 
 ## Finding OAuth Account IDs
 

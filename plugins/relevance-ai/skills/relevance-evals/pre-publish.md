@@ -30,7 +30,7 @@ Failure modes:
 
 A publish check costs the owner time on every publish: a check typically takes about 3 minutes, sometimes 10. Propose one in plain words with that cost, and set it up only once they agree — never configure one they haven't heard about. For example:
 
-> "Because it emails customers on its own, I'd re-run these four examples before every change you publish. Each publish would take about 3 minutes longer, occasionally 10, and you'd hear straight away if a change broke the refund rule. Say 'no checks' if you'd rather not."
+> "Because it emails customers on its own, I'd re-run these four examples before every change you publish. Each publish would take about 3 minutes longer, occasionally 10, and you'd hear straight away if a change broke the refund rule. Say the word and I'll set it up."
 
 Set it up non-blocking (`block_on_failure: false`) unless they ask for blocking; for a blocking check, add that the change won't go live until it's fixed.
 

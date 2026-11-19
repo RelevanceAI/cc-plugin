@@ -9,6 +9,8 @@ Configure trigger **nodes** on a workforce so it runs on an external event (emai
 
 > **Sibling skill:** [`../managing-relevance-agents/triggers.md`](../managing-relevance-agents/triggers.md) covers **agent-level** triggers (attached to a standalone agent via `relevance_create_trigger`). Workforce triggers attach to the workforce graph's trigger node and use a different (nested) config shape — same underlying vendors, two attachment points. Pick whichever maps to the entity that owns the run.
 
+> **Private accounts fail in triggered runs.** Before adding an `auto` trigger, check the accounts its runs will use, as in [Accounts in triggered runs](../managing-relevance-tools/oauth.md#accounts-in-triggered-runs).
+
 ## Two Trigger Modes
 
 A workforce trigger node has two modes:
@@ -214,10 +216,11 @@ sync_data: {
       message: 'Generate the daily sales summary',
       schedule: {
         frequency: 'daily', // 'minutely' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'annually' | 'no_repeat' | 'custom_cron'
-        hour: '09:00', // required for every frequency except custom_cron
+        hour: '09:00', // required for every frequency except custom_cron; no effect on minutely/hourly timing
         timezone: 'America/New_York', // required for every frequency except custom_cron
         // minutely:  minute_interval: '15' (min 10)
         // hourly:    hour_interval: '2' (min 1)
+        //   minutely/hourly runs fall every interval from when it was saved, not from hour: never promise a start time
         // weekly:    day_of_week: 'mon'
         // monthly:   day_of_month: '1' (1-31 or 'last_day')
         // annually:  day_of_month + month
@@ -250,6 +253,8 @@ sync_data: {
 }
 ```
 
+Once the workforce is published, read the URL the source sends its events to from `relevance_get_trigger`'s `configuration.webhook_url` (the trigger id comes from `relevance_list_trigger_statuses` with the workforce's id; reading it needs project editor permission). Never build it yourself, and give it only to the person setting up the source: anyone holding it can start runs.
+
 ### tool_trigger (one workforce run per item a tool returns)
 
 Runs a tool on `run_schedule` and starts one workforce run per element of the array at the tool's output key `tool_config.output_field`. It works the same on a single agent; the agent triggers skill's [Tool Trigger](../managing-relevance-agents/triggers.md#tool-trigger) section has the setup steps (shape the output, publish the tool, run it once, pick `dedupe_field`) and they apply here unchanged. Only the wrapper differs: here the config sits under `sync_data.config.tool_trigger`, and the trigger is created when the workforce is published. Use it instead of a recurring trigger whose message has an agent fetch the list and loop over it ([why](../managing-relevance-agents/SKILL.md#a-tool-that-lists-the-work-starts-the-agent)). For a list the user already has (a CSV or a knowledge table), start a bulk run instead, with the bulk-run tool or Run in bulk on the workforce's page ([many-items.md](../managing-relevance-agents/many-items.md#run-in-bulk-a-list-you-already-have)). When converting one, pause the old recurring trigger with `relevance_update_workforce_trigger_status` before publishing any agent changes, and let already-running tasks finish. Reconcile the backlog and preserve the old handled-id exclusions across polls as [Converting an agent that already works through a list](../managing-relevance-agents/many-items.md#converting-an-agent-that-already-works-through-a-list) says. Publish the agents' one-record prompts while the old trigger stays paused, since publishing the workforce doesn't publish its agents. Then add the `tool_trigger` node and remove the recurring node in the same workforce publish.
@@ -273,7 +278,7 @@ sync_data: {
       run_schedule: {
         frequency: 'minutely',
         minute_interval: '15', // min 10
-        hour: '09:00', // required even for minutely
+        hour: '09:00', // required even for minutely, but has no effect on when it runs
         timezone: 'UTC',
       },
       tool_config: {
@@ -371,7 +376,7 @@ sync_data: {
 
 ### Slack (channel messages)
 
-Resolve channel IDs first with `relevance_list_slack_channels`:
+Resolve channel IDs first with `relevance_list_slack_channels`, and tell the user to add the Relevance AI app to each channel (`/invite` it there):
 
 ```typescript
 sync_data: {
@@ -389,7 +394,7 @@ sync_data: {
 }
 ```
 
-### Teams (channel messages)
+### Teams (channel and chat messages)
 
 ```typescript
 sync_data: {
@@ -398,7 +403,7 @@ sync_data: {
     teams: {
       oauth_account_id: '<teams-oauth-account-uuid>', // REQUIRED
       tenant_id: '<microsoft-tenant-id>',
-      channels: [],
+      channels: ['<teams-channel-id>'], // and/or groups, users
       keywords: { values: [], config: { case_sensitive: false } },
       excluded_keywords: [],
       thread_reply_mode: 'auto',
@@ -407,6 +412,8 @@ sync_data: {
   },
 }
 ```
+
+Name at least one conversation, and have the user add the bot to it: see [Teams Trigger](../managing-relevance-agents/triggers.md#teams-trigger).
 
 ### Google Calendar / Teams Calendar
 

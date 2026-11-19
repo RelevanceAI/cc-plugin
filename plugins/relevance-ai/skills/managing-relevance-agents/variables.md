@@ -54,10 +54,11 @@ Triggers and schedules pass none, so they use the saved values. A run you start 
 
 ## Changing variables
 
-All of these are `relevance_update_agent` patches on the draft. `params_schema.properties` and `params` merge by key, so send only the variables you change. `params_schema.required` and `params_schema.metadata.field_order` are lists, replaced whole: to add a name to one, send every existing entry plus the new name.
+All of these save to the draft. Most are `relevance_update_agent` patches. `params_schema.properties` and `params` merge by key, so send only the variables you change. `params_schema.required` and `params_schema.metadata.field_order` are lists, replaced whole: to add a name to one, send every existing entry plus the new name.
 
 - **Add one:** in the same patch, add `params_schema.properties.<name>` (with `type`, `title`, a `description` that says what it holds, and `metadata.content_type: "long_text"` for multi-line text), its value under `params.<name>`, and the `{{name}}` reference where it should be used. Name it in snake_case; the app refuses `knowledge`, `params` and `steps`, so avoid them. A variable no reference uses does nothing.
-- **Change a value:** `params: { <name>: "<new value>" }`. Text is replaced whole, so send all of it; a JSON variable's object merges key by key, like the rest of the patch.
+- **Change part of a text value:** `relevance_edit_agent_system_prompt` with `variable: "<name>"`, exactly as you edit a prompt: each `edits[].old_string` must match the value verbatim and be unique, and you send only the text you change. Pass `expected_line_count` (the `total_lines` you last read of that variable).
+- **Replace a value:** `params: { <name>: "<new value>" }`. Text is replaced whole, so send all of it; a JSON variable's object merges key by key, like the rest of the patch.
 - **Remove one:** `params_schema.properties.<name>: null` plus `params.<name>: null`, and take every `{{name}}` out of the prompt and tool inputs, or each one runs as `undefined`.
 - **Rename one:** add the new variable, change every `{{old}}` to `{{new}}` (the prompt, and each tool input in `used_in`, with `relevance_update_agent_action`), then remove the old one. The app does this in one step; the tools do not.
 - **Use one in a tool input:** set that input's `default_values.<input>` to `"{{name}}"` with `relevance_update_agent_action` (see [actions.md](actions.md)).

@@ -95,7 +95,7 @@ For step edits, use the dedicated step tools, all of which save to DRAFT only:
 - `relevance_remove_tool_step` — remove one step by 0-based `step_index`.
 - `relevance_move_tool_step` — reorder by `from_index` → `to_index` (both 0-based).
 
-Never issue several step-edit calls to the same tool at once — the last save wins and the other edits are lost. Always call `relevance_get_tool` first to confirm current step indices. The same principle holds for the agent side: never pass `actions` to `relevance_update_agent` — use `relevance_attach_tools_to_agent` / `relevance_update_agent_action` / `relevance_detach_tools_from_agent`.
+Never issue several step-edit calls to the same tool at once — the last save wins and the other edits are lost. Always call `relevance_get_tool` with `version: 'draft'` first to confirm current step indices. The same principle holds for the agent side: never pass `actions` to `relevance_update_agent` — use `relevance_attach_tools_to_agent` / `relevance_update_agent_action` / `relevance_detach_tools_from_agent`.
 
 ## Version Retention
 

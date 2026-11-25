@@ -343,6 +343,14 @@ To turn a trigger off (or back on), **pause/resume it — don't delete and recre
 relevance_delete_trigger({ document_id: 'trigger-doc-id' });
 ```
 
+⚠️ **Deleting a recurring trigger is close to a one-way door, which is the other reason to pause instead.** The call returns `{"success": true}` and the trigger disappears from `relevance_list_agent_triggers`, but the **underlying schedule is left behind**. Recreating the trigger at the same document id then fails permanently:
+
+```
+500 ConflictException: Schedule <agent-prefix>-recurring-trigger_via_recu already exists.
+```
+
+It fails the same way however the trigger is recreated, and it does not clear with time — the agent is left with no working trigger at all. Recover by recreating under a **new** document id (omit `document_id` on `relevance_create_trigger`, as [Create Trigger](#create-trigger) already advises). An inert orphan schedule stays behind at the old id.
+
 ### Evals for a Triggered Agent
 
 A trigger's message arrives as a user turn — the first one for a webhook, schedule or table run, while a threaded trigger (email, Slack, CRM) can also add to an existing conversation — so an eval should open with a message shaped like it — the rendered `message_template`, or a past run's with personal data swapped for fakes — pinned as the scenario's `first_message`, not paraphrased into its `prompt`. See the `relevance-evals` skill's "Grounding in real runs" runbook.

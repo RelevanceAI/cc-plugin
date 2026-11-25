@@ -38,6 +38,51 @@ Steps go through `relevance_update_tool_steps` (every edit to one tool in one ca
 
 Other step fields (`transformation`, `version`, `version_metadata`, `saved_params`, `parent_step`, `branch_id`) are not patchable through this tool. To change a step's transformation type or position, use `remove` + `add` or `move` ops in one `relevance_update_tool_steps` call (or the singular `relevance_add_tool_step` / `relevance_remove_tool_step` / `relevance_move_tool_step`, one after another).
 
+### Fallback fields: `continue_on_error`, `use_fallback_on_skip`, `default_output_values`
+
+`default_output_values` is an **array of `{ original_key, value }` objects**, not an object keyed by field name. An object is rejected when the tool is saved:
+
+```
+Body Validation Error: must be array {"type":"array"} /transformations/steps/2/default_output_values
+```
+
+```typescript
+// WRONG — rejected on save
+default_output_values: { response_body: {}, status: 0 }
+
+// CORRECT
+default_output_values: [
+  { original_key: 'response_body', value: {} },
+  { original_key: 'status', value: 0 },
+]
+```
+
+⚠️ **`continue_on_error` alone does not keep the run alive.** It absorbs the step's own failure, but not a breach of the transformation's **output contract**: a step that comes back without a field its transformation declares still kills the whole tool, and the error names the transformation, not the step you set the flag on. A `hubspot_api_call` that 404s and returns `{}` ends the run with
+
+```
+Studio transformation hubspot_api_call output validation error: must have required property 'response_body'
+```
+
+even with `continue_on_error: true` set on that step. Give the step a `default_output_values` entry for **every** field the transformation declares it returns (for an API-call step, `response_body` and `status`), and add `use_fallback_on_skip: true` when the step also carries an `if:`, so the defaults stand in on the skip path too:
+
+```typescript
+{
+  name: 'fetch_company',
+  transformation: 'hubspot_api_call',
+  continue_on_error: true,
+  use_fallback_on_skip: true,
+  default_output_values: [
+    { original_key: 'response_body', value: {} },
+    { original_key: 'status', value: 0 },
+  ],
+  params: { /* … */ },
+}
+```
+
+Read the transformation's declared outputs from `relevance_get_transformation` rather than guessing which ones are required.
+
+A step guarded this way never fails the run, so nothing downstream may report success on its behalf — `status: 0` is the default, not an answer from the provider. See [Write and confirm](patterns.md#write-and-confirm).
+
 ## Picking a step type: the ladder
 
 Before you ask _which_ transformation, decide _what kind_ of step. When the step has to talk to an
@@ -665,6 +710,29 @@ Iterate over arrays.
 **Output:** `{{results}}` - Array with one entry per item: the last inner step's output (its own `output` mapping when it has one, otherwise its raw output). With `error_handling: "continue"` (the default), an item whose iteration failed adds its error to `{{errors}}` and nothing to `{{results}}`, so the two lists don't line up with the input by position
 
 **Critical:** Loop requires actual array, not JSON string. Parse with Python first if needed.
+
+⚠️ **`{{steps.*}}` does not resolve inside a loop's inner steps.** An inner step sees `{{foreach.item…}}` and tool-level params — nothing else. A reference to an earlier step substitutes to an **empty string**, so an auth header goes out blank and the API answers `401`, which reads as an expired credential rather than a templating bug:
+
+```typescript
+// WRONG — the token resolves to "" inside the loop, every call 401s
+params: { headers: { Authorization: 'Bearer {{steps.read_token.output.access_token}}' } }
+```
+
+Carry the value through the items array instead, built in an ordinary code step, which *can* read `{{steps.*}}`:
+
+```python
+# in an ordinary step before the loop
+TOKEN = "{{steps.read_token.output.access_token}}"
+return {'items': [{'email': e, 'token': TOKEN} for e in emails]}
+```
+
+```typescript
+// in the loop's inner step
+url: '…/v2/enrollments/?filter[student.email]={{foreach.item.email}}',
+headers: { Authorization: 'Bearer {{foreach.item.token}}' }
+```
+
+⚠️ **Inner step names must be unique across the whole tool**, not just within their own loop. Two loops each holding a step called `search` fails the save with `Circular reference with step search detected`.
 
 ## File Processing
 

@@ -711,6 +711,29 @@ Iterate over arrays.
 
 **Critical:** Loop requires actual array, not JSON string. Parse with Python first if needed.
 
+⚠️ **`{{steps.*}}` does not resolve inside a loop's inner steps.** An inner step sees `{{foreach.item…}}` and tool-level params — nothing else. A reference to an earlier step substitutes to an **empty string**, so an auth header goes out blank and the API answers `401`, which reads as an expired credential rather than a templating bug:
+
+```typescript
+// WRONG — the token resolves to "" inside the loop, every call 401s
+params: { headers: { Authorization: 'Bearer {{steps.read_token.output.access_token}}' } }
+```
+
+Carry the value through the items array instead, built in an ordinary code step, which *can* read `{{steps.*}}`:
+
+```python
+# in an ordinary step before the loop
+TOKEN = "{{steps.read_token.output.access_token}}"
+return {'items': [{'email': e, 'token': TOKEN} for e in emails]}
+```
+
+```typescript
+// in the loop's inner step
+url: '…/v2/enrollments/?filter[student.email]={{foreach.item.email}}',
+headers: { Authorization: 'Bearer {{foreach.item.token}}' }
+```
+
+⚠️ **Inner step names must be unique across the whole tool**, not just within their own loop. Two loops each holding a step called `search` fails the save with `Circular reference with step search detected`.
+
 ## File Processing
 
 ### file_to_text_llm_friendly

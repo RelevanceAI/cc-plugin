@@ -525,3 +525,35 @@ return {"items": all_items, "total_pages": page - 1}
   }
 }
 ```
+
+### Chaining cursor pages without a code step
+
+A step's `output` mapping can read a **nested** field of the response, so cursor pages can chain through `api_call` steps alone:
+
+```typescript
+// page 1 exposes the cursor alongside the body
+{ name: "page1", transformation: "api_call",
+  params: { url: "…/v2/enrollments/?page[size]=100", method: "GET", headers: BEARER },
+  output: { raw: "{{response_body}}", status: "{{status}}",
+            cursor: "{{response_body.next_cursor}}", more: "{{response_body.has_more}}" } }
+
+// page 2 is driven by page 1's cursor
+{ name: "page2", transformation: "api_call",
+  params: { url: "…/v2/enrollments/?page[size]=100&page[cursor]={{steps.page1.output.cursor}}", … } }
+```
+
+⚠️ **An exhausted cursor may return PAGE 1 AGAIN** — not an empty page, and not an error. Verified against Skilljar: the trailing request came back `200` with 100 rows, every one a duplicate of page 1. **Merge pages by record id**, or the first page is counted twice on every run:
+
+```python
+rows, seen = [], set()
+for pg in pages:
+    for r in (pg.get('data') or []):
+        if str(r.get('id')) in seen:
+            continue
+        seen.add(str(r.get('id')))
+        rows.append(r)
+# only the LAST page still reporting has_more means you genuinely ran out of room
+truncated = bool(pages[-1].get('has_more'))
+```
+
+**Surface that `truncated` flag in what the tool delivers, not only in a return field.** A capped list fails silently: the call succeeds, the data is simply short, and every number downstream is quietly wrong. A flag only an agent's prompt mentions is a flag nobody reads.

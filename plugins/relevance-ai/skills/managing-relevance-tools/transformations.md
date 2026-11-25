@@ -38,6 +38,51 @@ Steps go through `relevance_update_tool_steps` (every edit to one tool in one ca
 
 Other step fields (`transformation`, `version`, `version_metadata`, `saved_params`, `parent_step`, `branch_id`) are not patchable through this tool. To change a step's transformation type or position, use `remove` + `add` or `move` ops in one `relevance_update_tool_steps` call (or the singular `relevance_add_tool_step` / `relevance_remove_tool_step` / `relevance_move_tool_step`, one after another).
 
+### Fallback fields: `continue_on_error`, `use_fallback_on_skip`, `default_output_values`
+
+`default_output_values` is an **array of `{ original_key, value }` objects**, not an object keyed by field name. An object is rejected when the tool is saved:
+
+```
+Body Validation Error: must be array {"type":"array"} /transformations/steps/2/default_output_values
+```
+
+```typescript
+// WRONG — rejected on save
+default_output_values: { response_body: {}, status: 0 }
+
+// CORRECT
+default_output_values: [
+  { original_key: 'response_body', value: {} },
+  { original_key: 'status', value: 0 },
+]
+```
+
+⚠️ **`continue_on_error` alone does not keep the run alive.** It absorbs the step's own failure, but not a breach of the transformation's **output contract**: a step that comes back without a field its transformation declares still kills the whole tool, and the error names the transformation, not the step you set the flag on. A `hubspot_api_call` that 404s and returns `{}` ends the run with
+
+```
+Studio transformation hubspot_api_call output validation error: must have required property 'response_body'
+```
+
+even with `continue_on_error: true` set on that step. Give the step a `default_output_values` entry for **every** field the transformation declares it returns (for an API-call step, `response_body` and `status`), and add `use_fallback_on_skip: true` when the step also carries an `if:`, so the defaults stand in on the skip path too:
+
+```typescript
+{
+  name: 'fetch_company',
+  transformation: 'hubspot_api_call',
+  continue_on_error: true,
+  use_fallback_on_skip: true,
+  default_output_values: [
+    { original_key: 'response_body', value: {} },
+    { original_key: 'status', value: 0 },
+  ],
+  params: { /* … */ },
+}
+```
+
+Read the transformation's declared outputs from `relevance_get_transformation` rather than guessing which ones are required.
+
+A step guarded this way never fails the run, so nothing downstream may report success on its behalf — `status: 0` is the default, not an answer from the provider. See [Write and confirm](patterns.md#write-and-confirm).
+
 ## Picking a step type: the ladder
 
 Before you ask _which_ transformation, decide _what kind_ of step. When the step has to talk to an
